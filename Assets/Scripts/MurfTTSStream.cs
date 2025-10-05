@@ -8,24 +8,83 @@ using System.Threading.Tasks;
 public class MurfTTSStream : MonoBehaviour
 {
     [Header("Murf API Settings")]
-    public string apiKey = "ap2_76d7def2-5aab-4631-b21b-a8129bbcc4a4";  // 🔑 replace with your actual API key
+    public string apiKey = "ap2_1210100a-8def-4839-9825-095fa0c59ce2";  // Replace with your actual API key
     public string voiceId = "en-US-ken";
-    public string style = "Conversational";
-    public int pitch = -10;
+    public string style = "Wizard";
+    public int pitch = -23;
 
     private WebSocket websocket;
     private AudioSource audioSource;
     private List<float> audioBuffer = new List<float>();
+    private const int sampleRate = 44100;
+    private bool isPlaying = false;
 
-    private const int sampleRate = 24000;
+    [Serializable]
+    public class VoiceConfig
+    {
+        public string voice_id;
+        public string style;
+        public int pitch;
+    }
 
-    private async void Start()
+    [Serializable]
+    public class VoiceConfigMessage
+    {
+        public VoiceConfig voice_config;
+    }
+
+    [Serializable]
+    public class TTSRequest
+    {
+        public string context_id;
+        public string text;
+        public bool end = true;
+    }
+
+    [Serializable]
+    public class AdvancedSettings
+    {
+        public int min_buffer_size;
+        public int max_buffer_delay_in_ms;
+    }
+
+    [Serializable]
+    public class AdvancedSettingsMessage
+    {
+        public AdvancedSettings setAdvancedSettings;
+    }
+
+    [Serializable]
+    public class ClearContext
+    {
+        public string context_id;
+        public bool clear = true;
+    }
+
+    [Serializable]
+    public class ClearContextMessage
+    {
+        public ClearContext clearContext;
+    }
+
+    [Serializable]
+    private class MurfAudioMessage
+    {
+        public string type;
+        public string audio;
+        public string context_id;
+        public bool final;
+    }
+
+    private void Awake()
     {
         audioSource = GetComponent<AudioSource>();
         if (!audioSource)
             audioSource = gameObject.AddComponent<AudioSource>();
+    }
 
-        // ✅ Pass API key via URL (Murf standard)
+    private async void Start()
+    {
         string url = $"wss://api.murf.ai/v1/speech/stream-input?api_key={apiKey}";
 
         websocket = new WebSocket(url);
@@ -34,18 +93,25 @@ public class MurfTTSStream : MonoBehaviour
         {
             Debug.Log("✅ Connected to Murf streaming API");
 
-            // Step 1️⃣: Send voice configuration
-           await SendJson(new
-{
-    
-    voice_config = new
-    {
-        voice_id = voiceId,
-        style = style,
-        pitch = pitch
-    }
-});
-            Debug.Log("📤 Sent voice_config — ready to stream text");
+            var voiceConfigMsg = new VoiceConfigMessage()
+            {
+                voice_config = new VoiceConfig()
+                {
+                    voice_id = voiceId,
+                    style = style,
+                    pitch = pitch
+                }
+            };
+
+            try
+            {
+                await SendJson(voiceConfigMsg);
+                Debug.Log("📤 Sent voice_config — ready for context-based streaming");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("Error sending voice config: " + e.Message);
+            }
         };
 
         websocket.OnError += (e) => Debug.LogError("❌ WebSocket Error: " + e);
@@ -62,20 +128,50 @@ public class MurfTTSStream : MonoBehaviour
         }
     }
 
-    private void Update() => websocket?.DispatchMessageQueue();
-
-    private void OnDestroy() => websocket?.Close();
-
-    // --- ✉️ Helper: Send JSON messages ---
-    private async Task SendJson(object obj)
+    private void Update()
     {
-        string json = JsonUtility.ToJson(obj);
-        await websocket.SendText(json);
-        Debug.Log("📨 Sent: " + json);
+        websocket?.DispatchMessageQueue();
+
+        if (!audioSource.isPlaying && isPlaying && audioBuffer.Count > 0)
+        {
+            PlayBufferedAudio();
+        }
     }
 
-    // --- 🔊 Send text to generate speech ---
-    public async void SendText(string text)
+    private async void OnDestroy()
+    {
+        if (websocket != null)
+        {
+            try
+            {
+                await websocket.Close();
+                websocket = null;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("Error during WebSocket close: " + e.Message);
+            }
+        }
+    }
+
+    private async Task SendJson(object obj)
+    {
+        try
+        {
+            string json = JsonUtility.ToJson(obj);
+            await websocket.SendText(json);
+            Debug.Log("📨 Sent: " + json);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("SendJson error: " + e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Send a text-to-speech turn with context ID for multi-turn/interruptible dialogue
+    /// </summary>
+    public async void SendTurn(string contextId, string text)
     {
         if (websocket == null || websocket.State != WebSocketState.Open)
         {
@@ -83,19 +179,66 @@ public class MurfTTSStream : MonoBehaviour
             return;
         }
 
-        await SendJson(new { type = "sendText", text = text });
-        await SendJson(new { type = "endOfStream" });
-
-        Debug.Log("🗣️ Sent text to Murf: " + text);
+        try
+        {
+            var req = new TTSRequest { context_id = contextId, text = text, end = true };
+            await SendJson(req);
+            Debug.Log($"🗣️ Sent turn for context_id: {contextId}, text: {text}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("SendTurn error: " + e.Message);
+        }
     }
 
-    // --- 🧠 Handle incoming messages ---
+    /// <summary>
+    /// Interrupt/cancel a TTS turn for a given context ID
+    /// </summary>
+    public async void ClearContextTurn(string contextId)
+    {
+        if (websocket == null || websocket.State != WebSocketState.Open)
+        {
+            Debug.LogWarning("WebSocket not ready");
+            return;
+        }
+
+        try
+        {
+            var clearMsg = new ClearContextMessage
+            {
+                clearContext = new ClearContext { context_id = contextId, clear = true }
+            };
+            await SendJson(clearMsg);
+            Debug.Log($"🧹 Clear context request sent for: {contextId}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("ClearContextTurn error: " + e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Change streaming buffer/latency settings as needed
+    /// </summary>
+    public async void SetAdvancedSettings(int minBufferSize, int maxBufferDelayInMs)
+    {
+        var settingsMsg = new AdvancedSettingsMessage
+        {
+            setAdvancedSettings = new AdvancedSettings
+            {
+                min_buffer_size = minBufferSize,
+                max_buffer_delay_in_ms = maxBufferDelayInMs
+            }
+        };
+        await SendJson(settingsMsg);
+        Debug.Log($"⚙️ Set advanced settings: min_buffer_size={minBufferSize}, max_buffer_delay_in_ms={maxBufferDelayInMs}");
+    }
+
     private void OnMessageReceived(byte[] message)
     {
         string msg = Encoding.UTF8.GetString(message);
         Debug.Log("⬅️ Murf raw message: " + msg);
 
-        // Handle JSON containing base64 audio
         if (msg.Contains("\"audio\""))
         {
             try
@@ -108,7 +251,13 @@ public class MurfTTSStream : MonoBehaviour
                     audioBuffer.AddRange(samples);
 
                     if (!audioSource.isPlaying && audioBuffer.Count > sampleRate / 4)
+                    {
                         PlayBufferedAudio();
+                    }
+                    if (audioMsg.final)
+                    {
+                        Debug.Log("✅ Finished all audio for context_id: " + audioMsg.context_id);
+                    }
                 }
             }
             catch (Exception e)
@@ -118,14 +267,6 @@ public class MurfTTSStream : MonoBehaviour
         }
     }
 
-    [Serializable]
-    private class MurfAudioMessage
-    {
-        public string type;
-        public string audio;
-    }
-
-    // --- 🔊 PCM conversion ---
     private float[] ConvertPCM16ToFloat(byte[] bytes)
     {
         int sampleCount = bytes.Length / 2;
@@ -139,12 +280,16 @@ public class MurfTTSStream : MonoBehaviour
     {
         if (audioBuffer.Count == 0) return;
 
-        AudioClip clip = AudioClip.Create("MurfStream", audioBuffer.Count, 1, sampleRate, false);
-        clip.SetData(audioBuffer.ToArray(), 0);
+        float[] bufferCopy = audioBuffer.ToArray();
+        audioBuffer.Clear();
+
+        AudioClip clip = AudioClip.Create("MurfStream", bufferCopy.Length, 1, sampleRate, false);
+        clip.SetData(bufferCopy, 0);
         audioSource.clip = clip;
         audioSource.Play();
 
-        Debug.Log($"🎧 Playing {audioBuffer.Count} samples ({audioBuffer.Count / (float)sampleRate:F2}s)");
-        audioBuffer.Clear();
+        isPlaying = true;
+
+        Debug.Log($"🎧 Playing {bufferCopy.Length} samples ({bufferCopy.Length / (float)sampleRate:F2}s)");
     }
 }

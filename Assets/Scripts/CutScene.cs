@@ -16,21 +16,22 @@ public class Cutscene : MonoBehaviour
     public float holdDuration = 3f;
 
     private MurfTTSStream murfTTS;
-
     private AudioSource audioSource;
+    private int turnCounter = 0; // Context ID counter
 
     private void Start()
     {
-        // Make sure MurfTTS and AudioSource are attached
-       murfTTS = GetComponent<MurfTTSStream>();
-if (!murfTTS)
-    murfTTS = gameObject.AddComponent<MurfTTSStream>();
+        // Obtain or add MurfTTSStream component
+        murfTTS = GetComponent<MurfTTSStream>();
+        if (!murfTTS)
+            murfTTS = gameObject.AddComponent<MurfTTSStream>();
 
+        // Obtain or add AudioSource component
         audioSource = GetComponent<AudioSource>();
         if (!audioSource)
             audioSource = gameObject.AddComponent<AudioSource>();
 
-        // Start the full cinematic sequence
+        // Start the cinematic sequence
         StartCoroutine(PlayFullCutscene());
     }
 
@@ -65,7 +66,7 @@ if (!murfTTS)
             "To reach the dragon’s fortress and end the Rune Plague once and for all."
         }));
 
-        // Optional: load next scene (e.g., character creation)
+        // Optional: load next scene
         // SceneManager.LoadScene("CharacterCreation");
     }
 
@@ -77,30 +78,30 @@ if (!murfTTS)
         }
     }
 
-    // --- 🔊 Modified ShowLine() with Murf narration ---
-IEnumerator ShowLine(string text)
-{
-    // Display the text
-    dialogueText.text = text;
-    yield return StartCoroutine(FadeText(0, 1));
-
-    // Send text to Murf for live narration (WebSocket streaming)
-    if (murfTTS != null)
+    IEnumerator ShowLine(string text)
     {
-        murfTTS.SendText(text); // 🔊 Start speaking immediately
+        dialogueText.text = text;
+        yield return StartCoroutine(FadeText(0, 1));
 
-        // Wait while audio plays
-        while (audioSource.isPlaying)
-            yield return null;
-    }
-    else
-    {
-        // fallback wait if no Murf connection
-        yield return new WaitForSeconds(holdDuration);
-    }
+        // Generate unique context ID for each narration line
+        string contextId = $"cutscene_turn_{++turnCounter}";
 
-    yield return StartCoroutine(FadeText(1, 0));
-}
+        if (murfTTS != null)
+        {
+            murfTTS.SendTurn(contextId, text);
+
+            // Wait while the audio plays
+            while (audioSource.isPlaying)
+                yield return null;
+        }
+        else
+        {
+            // Fallback pause
+            yield return new WaitForSeconds(holdDuration);
+        }
+
+        yield return StartCoroutine(FadeText(1, 0));
+    }
 
     IEnumerator FadeText(float startAlpha, float endAlpha)
     {
