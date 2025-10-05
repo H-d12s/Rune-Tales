@@ -717,12 +717,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1f71da2cd57a7524fa16a33789d775c4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  dialogueText: {fileID: 0}
-  dragonImage: {fileID: 0}
-  plagueImage: {fileID: 0}
-  townImage: {fileID: 0}
+  dialogueText: {fileID: 2015758677}
+  dragonImage: {fileID: 1941792823}
+  plagueImage: {fileID: 458395057}
+  townImage: {fileID: 931746816}
   fadeDuration: 1
-  holdDuration: 3
+  holdDuration: 2
+  initialFadeDuration: 2
 --- !u!4 &1824570434
 Transform:
   m_ObjectHideFlags: 0
@@ -1016,7 +1017,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Long ago,
+  m_text: '
+
+'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 5969085948235c5448aeac5918d921ac, type: 2}
   m_sharedMaterial: {fileID: -3773770499706560944, guid: 5969085948235c5448aeac5918d921ac, type: 2}
@@ -1050,8 +1053,8 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
-  m_HorizontalAlignment: 1
-  m_VerticalAlignment: 256
+  m_HorizontalAlignment: 2
+  m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
   m_wordSpacing: 0

@@ -11,12 +11,12 @@ public class MurfTTSStream : MonoBehaviour
     public string apiKey = "ap2_1210100a-8def-4839-9825-095fa0c59ce2";  // Replace with your actual API key
     public string voiceId = "en-US-ken";
     public string style = "Wizard";
-    public int pitch = -23;
+    public int pitch = -35;
 
     private WebSocket websocket;
     private AudioSource audioSource;
     private List<float> audioBuffer = new List<float>();
-    private const int sampleRate = 44100;
+    private const int sampleRate = 50000;
     private bool isPlaying = false;
 
     [Serializable]

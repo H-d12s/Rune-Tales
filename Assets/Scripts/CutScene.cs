@@ -14,38 +14,38 @@ public class Cutscene : MonoBehaviour
     [Header("Timings")]
     public float fadeDuration = 1f;
     public float holdDuration = 3f;
+    public float initialFadeDuration = 6f; // 6 seconds for initial fade-in
 
     private MurfTTSStream murfTTS;
     private AudioSource audioSource;
-    private int turnCounter = 0; // Context ID counter
+    private int turnCounter = 0;
+
+    private bool isFirstImageFade = true; // Track first fade
 
     private void Start()
     {
-        // Obtain or add MurfTTSStream component
         murfTTS = GetComponent<MurfTTSStream>();
         if (!murfTTS)
             murfTTS = gameObject.AddComponent<MurfTTSStream>();
 
-        // Obtain or add AudioSource component
         audioSource = GetComponent<AudioSource>();
         if (!audioSource)
             audioSource = gameObject.AddComponent<AudioSource>();
 
-        // Start the cinematic sequence
         StartCoroutine(PlayFullCutscene());
     }
 
     IEnumerator PlayFullCutscene()
     {
-        // --- SCENE 1: The Dragon ---
+        // Scene 1 - initial image with long fade
         yield return StartCoroutine(ShowScene(dragonImage, new string[]
         {
-            "Long ago, when the skies still shimmered with magic, there lived the Runic Dragon — keeper of balance and master of the sacred runes.",
+           "Long ago, when the skies still shimmered with magic, there lived the Runic Dragon — keeper of balance and master of the sacred runes.",
             "Every ten years, he would open the gates of his celestial fortress and scatter his runes across the lands.",
             "These runes brought life, fortune, and wisdom to humankind… a gift from the eternal guardian himself."
         }));
 
-        // --- SCENE 2: The Rune Plague ---
+        // Following scenes with normal fade time
         yield return StartCoroutine(CrossfadeImages(dragonImage, plagueImage));
         yield return StartCoroutine(ShowScene(plagueImage, new string[]
         {
@@ -55,7 +55,6 @@ public class Cutscene : MonoBehaviour
             "The gifts of old became curses. And the land was forever changed."
         }));
 
-        // --- SCENE 3: The Town of Eldhaven ---
         yield return StartCoroutine(CrossfadeImages(plagueImage, townImage));
         yield return StartCoroutine(ShowScene(townImage, new string[]
         {
@@ -66,12 +65,34 @@ public class Cutscene : MonoBehaviour
             "To reach the dragon’s fortress and end the Rune Plague once and for all."
         }));
 
-        // Optional: load next scene
+        // Optional next scene
         // SceneManager.LoadScene("CharacterCreation");
     }
 
     IEnumerator ShowScene(Image sceneImage, string[] lines)
     {
+        // Fade in the scene image with initial longer fade for first image only
+        float fadeTime = isFirstImageFade ? initialFadeDuration : fadeDuration;
+        isFirstImageFade = false; // Subsequent images fade normally
+
+        // Set initial alpha to 0 and enable image
+        sceneImage.color = new Color(sceneImage.color.r, sceneImage.color.g, sceneImage.color.b, 0);
+        sceneImage.gameObject.SetActive(true);
+
+        // Fade in the image over fadeTime
+        float t = 0;
+        Color c = sceneImage.color;
+
+        while (t < fadeTime)
+        {
+            t += Time.deltaTime;
+            float alpha = Mathf.Lerp(0, 1, t / fadeTime);
+            sceneImage.color = new Color(c.r, c.g, c.b, alpha);
+            yield return null;
+        }
+        sceneImage.color = new Color(c.r, c.g, c.b, 1);
+
+        // Show all lines in the scene
         foreach (string line in lines)
         {
             yield return StartCoroutine(ShowLine(line));
@@ -79,29 +100,37 @@ public class Cutscene : MonoBehaviour
     }
 
     IEnumerator ShowLine(string text)
+{
+    string contextId = $"cutscene_turn_{++turnCounter}";
+
+    if (murfTTS != null)
     {
+        // Start streaming TTS audio
+        murfTTS.SendTurn(contextId, text);
+
+        // Wait until audio starts playing (may take some time to buffer)
+        while (!audioSource.isPlaying)
+            yield return null;
+
+        // Now display text and fade in
         dialogueText.text = text;
         yield return StartCoroutine(FadeText(0, 1));
 
-        // Generate unique context ID for each narration line
-        string contextId = $"cutscene_turn_{++turnCounter}";
-
-        if (murfTTS != null)
-        {
-            murfTTS.SendTurn(contextId, text);
-
-            // Wait while the audio plays
-            while (audioSource.isPlaying)
-                yield return null;
-        }
-        else
-        {
-            // Fallback pause
-            yield return new WaitForSeconds(holdDuration);
-        }
-
-        yield return StartCoroutine(FadeText(1, 0));
+        // Hold text while audio is playing
+        while (audioSource.isPlaying)
+            yield return null;
     }
+    else
+    {
+        // fallback without TTS
+        dialogueText.text = text;
+        yield return StartCoroutine(FadeText(0, 1));
+        yield return new WaitForSeconds(holdDuration);
+    }
+
+    // Fade out text only after audio ended
+    yield return StartCoroutine(FadeText(1, 0));
+}
 
     IEnumerator FadeText(float startAlpha, float endAlpha)
     {
@@ -125,6 +154,11 @@ public class Cutscene : MonoBehaviour
         Color fromColor = fromImage.color;
         Color toColor = toImage.color;
 
+        // Ensure proper alpha to start
+        fromImage.color = new Color(fromColor.r, fromColor.g, fromColor.b, 1);
+        toImage.color = new Color(toColor.r, toColor.g, toColor.b, 0);
+        toImage.gameObject.SetActive(true);
+
         while (t < fadeDuration)
         {
             t += Time.deltaTime;
@@ -137,6 +171,9 @@ public class Cutscene : MonoBehaviour
         }
 
         fromImage.color = new Color(fromColor.r, fromColor.g, fromColor.b, 0);
+        fromImage.gameObject.SetActive(false);
+
         toImage.color = new Color(toColor.r, toColor.g, toColor.b, 1);
     }
 }
+
