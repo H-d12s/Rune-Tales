@@ -46,7 +46,7 @@ public class Cutscene : MonoBehaviour
         }));
 
         // Following scenes with normal fade time
-        yield return StartCoroutine(CrossfadeImages(dragonImage, plagueImage));
+        
         yield return StartCoroutine(ShowScene(plagueImage, new string[]
         {
             "But greed took root in the hearts of men.",
@@ -55,7 +55,7 @@ public class Cutscene : MonoBehaviour
             "The gifts of old became curses. And the land was forever changed."
         }));
 
-        yield return StartCoroutine(CrossfadeImages(plagueImage, townImage));
+        
         yield return StartCoroutine(ShowScene(townImage, new string[]
         {
             "Centuries have passed since that day.",
@@ -148,32 +148,6 @@ public class Cutscene : MonoBehaviour
         dialogueText.color = new Color(c.r, c.g, c.b, endAlpha);
     }
 
-    IEnumerator CrossfadeImages(Image fromImage, Image toImage)
-    {
-        float t = 0;
-        Color fromColor = fromImage.color;
-        Color toColor = toImage.color;
-
-        // Ensure proper alpha to start
-        fromImage.color = new Color(fromColor.r, fromColor.g, fromColor.b, 1);
-        toImage.color = new Color(toColor.r, toColor.g, toColor.b, 0);
-        toImage.gameObject.SetActive(true);
-
-        while (t < fadeDuration)
-        {
-            t += Time.deltaTime;
-            float blend = t / fadeDuration;
-
-            fromImage.color = new Color(fromColor.r, fromColor.g, fromColor.b, Mathf.Lerp(1, 0, blend));
-            toImage.color = new Color(toColor.r, toColor.g, toColor.b, Mathf.Lerp(0, 1, blend));
-
-            yield return null;
-        }
-
-        fromImage.color = new Color(fromColor.r, fromColor.g, fromColor.b, 0);
-        fromImage.gameObject.SetActive(false);
-
-        toImage.color = new Color(toColor.r, toColor.g, toColor.b, 1);
-    }
+    
 }
 
