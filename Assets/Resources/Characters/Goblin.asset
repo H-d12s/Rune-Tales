@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Goblin
   m_EditorClassIdentifier: 
   characterName: Goblin
-  portrait: {fileID: 0}
+  portrait: {fileID: 3799508404887519019, guid: db7d6072ccf16264ba11f77de5532ef9, type: 3}
   baseHP: 50
   baseAttack: 10
   baseDefense: 10
@@ -21,6 +21,6 @@ MonoBehaviour:
   learnableAttacks:
   - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
     levelToLearn: 1
-  - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
-    levelToLearn: 0
+  - attack: {fileID: 11400000, guid: dbea48846a0d8664781eba1385b72919, type: 2}
+    levelToLearn: 1
   ultimateSkill: {fileID: 0}
