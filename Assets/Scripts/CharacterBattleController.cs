@@ -6,6 +6,8 @@ public class CharacterBattleController : MonoBehaviour
     public CharacterData characterData;
     public SpriteRenderer spriteRenderer;
 
+    [HideInInspector] public bool isPlayer; // ✅ identifies if this character belongs to the player team
+
     private CharacterRuntime runtimeCharacter;
 
     void Start()
@@ -44,7 +46,7 @@ public class CharacterBattleController : MonoBehaviour
             Debug.LogWarning($"⚠️ {characterData.characterName} has no portrait assigned!");
         }
 
-        Debug.Log($"✅ Spawned {characterData.characterName} with {runtimeCharacter.equippedAttacks.Count} attacks.");
+        Debug.Log($"✅ Spawned {(isPlayer ? "Player" : "Enemy")} {characterData.characterName} with {runtimeCharacter.equippedAttacks.Count} attacks.");
     }
 
     /// <summary>

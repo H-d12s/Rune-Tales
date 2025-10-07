@@ -129,7 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 29588609}
   m_Layer: 0
-  m_Name: PlayerSpawnPoints (1)
+  m_Name: EnemySpawn
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -402,7 +402,7 @@ MonoBehaviour:
   attackButtons:
   - {fileID: 1085930448}
   - {fileID: 1678979827}
-  playerController: {fileID: 1514485986397856314, guid: df0c4ad84c7cf3d4684b4d35b6e40ff5, type: 3}
+  playerController: {fileID: 3393074616825724406, guid: 77605a4b11861ab46819719afb2296c1, type: 3}
 --- !u!4 &182525326
 Transform:
   m_ObjectHideFlags: 0
@@ -702,6 +702,7 @@ GameObject:
   - component: {fileID: 519420031}
   - component: {fileID: 519420029}
   - component: {fileID: 519420030}
+  - component: {fileID: 519420033}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -827,6 +828,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &519420033
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519420028}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56666c5a40171f54783dd416a44f42bf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EventMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_MaxRayIntersections: 0
 --- !u!1 &548464934
 GameObject:
   m_ObjectHideFlags: 0
@@ -1349,13 +1366,13 @@ MonoBehaviour:
   enemySpawnPoints:
   - {fileID: 1593841978}
   - {fileID: 1538172759}
-  characterPrefab: {fileID: 5914233254496504064, guid: df0c4ad84c7cf3d4684b4d35b6e40ff5, type: 3}
+  characterPrefab: {fileID: 2784504921921569792, guid: 77605a4b11861ab46819719afb2296c1, type: 3}
   playerTeam:
   - {fileID: 11400000, guid: 987080841091a6f419b6c8fea4f85fb9, type: 2}
   enemyTeam:
   - {fileID: 11400000, guid: 49c616cea87200d4f9630f45f0314c2a, type: 2}
   - {fileID: 11400000, guid: 49c616cea87200d4f9630f45f0314c2a, type: 2}
-  verticalOffset: -2
+  verticalOffset: -1.5
 --- !u!4 &890644375
 Transform:
   m_ObjectHideFlags: 0

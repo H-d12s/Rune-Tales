@@ -1,27 +1,30 @@
 using UnityEngine;
+using System.Collections;
 
 [RequireComponent(typeof(CharacterBattleController))]
 public class EnemySelector : MonoBehaviour
 {
     private CharacterBattleController controller;
     private BattleUIManager uiManager;
-    private SpriteRenderer pointerRenderer;
+    private SpriteRenderer spriteRenderer;
+
+    private Color originalColor;
+    private Coroutine flashRoutine;
+
+    void Awake()
+    {
+        controller = GetComponent<CharacterBattleController>();
+        spriteRenderer = GetComponent<SpriteRenderer>();
+
+        if (spriteRenderer != null)
+            originalColor = spriteRenderer.color;
+    }
 
     void Start()
     {
-        controller = GetComponent<CharacterBattleController>();
         uiManager = FindFirstObjectByType<BattleUIManager>();
-
         if (uiManager == null)
-        {
-            Debug.LogError("❌ BattleUIManager not found in scene!");
-            return;
-        }
-
-        // Find the pointer sprite (child named "Pointer")
-        pointerRenderer = transform.Find("Pointer")?.GetComponent<SpriteRenderer>();
-        if (pointerRenderer != null)
-            pointerRenderer.enabled = false; // Hide by default
+            Debug.LogError("❌ EnemySelector: BattleUIManager not found in scene!");
     }
 
     void OnMouseDown()
@@ -29,13 +32,50 @@ public class EnemySelector : MonoBehaviour
         if (uiManager == null || controller == null)
             return;
 
+        if (!uiManager.IsSelectingTarget())
+        {
+            Debug.Log("⛔ Not in targeting mode — ignoring click");
+            return;
+        }
+
         uiManager.SetTarget(controller);
+        Highlight(true);
     }
 
-    // Called by UI manager to visually highlight
-    public void Highlight(bool active)
+    public void Highlight(bool on)
     {
-        if (pointerRenderer != null)
-            pointerRenderer.enabled = active;
+        if (spriteRenderer == null)
+            return;
+
+        if (on)
+        {
+            if (flashRoutine != null)
+                StopCoroutine(flashRoutine);
+            flashRoutine = StartCoroutine(FlashRed());
+        }
+        else
+        {
+            if (flashRoutine != null)
+                StopCoroutine(flashRoutine);
+
+            spriteRenderer.color = originalColor;
+            flashRoutine = null;
+        }
+    }
+
+    IEnumerator FlashRed()
+    {
+        while (true)
+        {
+            // Ping-pong between red and original color
+            float t = Mathf.PingPong(Time.time * 4f, 1f); // speed = 4
+            spriteRenderer.color = Color.Lerp(originalColor, Color.red, t);
+            yield return null;
+        }
+    }
+
+    public void ResetHighlight()
+    {
+        Highlight(false);
     }
 }

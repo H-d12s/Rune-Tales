@@ -2,13 +2,13 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
-//hi
+
 public class BattleUIManager : MonoBehaviour
 {
     [Header("UI Panels")]
-    public GameObject mainActionPanel;     // Panel with Attack / Equipment / Persuade / Retreat
-    public GameObject attackSelectionPanel; // Panel with actual attack buttons
-
+    public GameObject mainActionPanel;      // Panel with Attack / Equipment / Persuade / Retreat
+    public GameObject attackSelectionPanel; // Panel with attack buttons
+    private bool isSelectingTarget = false;
     [Header("Buttons")]
     public Button attackButton;
     public Button equipmentButton;
@@ -16,7 +16,7 @@ public class BattleUIManager : MonoBehaviour
     public Button retreatButton;
 
     [Header("Attack Buttons")]
-    public List<Button> attackButtons; // Assign 2 buttons here for now (can add more later)
+    public List<Button> attackButtons; // Assign 2–4 buttons here
 
     [Header("References")]
     public CharacterBattleController playerController;
@@ -31,7 +31,7 @@ public class BattleUIManager : MonoBehaviour
 
     private System.Collections.IEnumerator InitializeUI()
     {
-        // Wait a frame to ensure CharacterBattleController runs Start() first
+        // Wait one frame so CharacterBattleController can initialize
         yield return null;
 
         if (playerController == null)
@@ -44,54 +44,50 @@ public class BattleUIManager : MonoBehaviour
 
         if (playerRuntime == null)
         {
-            Debug.LogError("❌ playerRuntime is still null — CharacterBattleController may not have initialized correctly.");
+            Debug.LogError("❌ playerRuntime still null — CharacterBattleController may not have initialized correctly.");
             yield break;
         }
 
-        // Hook up buttons
+        // ✅ Hook up buttons
         attackButton.onClick.AddListener(OnAttackPressed);
         retreatButton.onClick.AddListener(OnRetreatPressed);
 
-        // Hide attack panel at start
-        attackSelectionPanel.SetActive(false);
+        attackSelectionPanel.SetActive(false); // hide attack panel at start
 
         Debug.Log("✅ Battle UI initialized successfully with playerRuntime.");
     }
 
+    // --- ATTACK PANEL SWITCHING ---
     void OnAttackPressed()
     {
-        // Switch panels
         mainActionPanel.SetActive(false);
         attackSelectionPanel.SetActive(true);
-
         UpdateAttackButtons();
-        Debug.Log($"🟢 Showing Attack Panel: {attackSelectionPanel.activeSelf}");
+
+        isSelectingTarget = true; // ✅ allow enemy clicks now
+
+        Debug.Log("🟢 Showing Attack Panel — target selection enabled");
     }
+
 
     void OnRetreatPressed()
     {
-        Debug.Log("🏃 Player chose to retreat!");
-        // TODO: Add retreat logic later
+        Debug.Log("🏃 Player chose to retreat! (Add logic later)");
     }
 
+    // --- ATTACK BUTTON LOGIC ---
     void UpdateAttackButtons()
     {
         if (playerRuntime == null)
         {
-            Debug.LogError("❌ playerRuntime is NULL — did you assign the PlayerController in the Inspector?");
-            return;
-        }
-
-        if (attackButtons == null || attackButtons.Count == 0)
-        {
-            Debug.LogError("❌ attackButtons list is EMPTY — assign buttons in the Inspector!");
+            Debug.LogError("❌ playerRuntime is NULL!");
             return;
         }
 
         var attacks = playerRuntime.equippedAttacks;
         if (attacks == null)
         {
-            Debug.LogError("❌ playerRuntime.equippedAttacks is NULL!");
+            Debug.LogError("❌ equippedAttacks is NULL!");
             return;
         }
 
@@ -104,14 +100,14 @@ public class BattleUIManager : MonoBehaviour
                 var attackData = attacks[i];
                 button.gameObject.SetActive(true);
 
+                // Set name text
                 var tmpText = button.GetComponentInChildren<TextMeshProUGUI>();
                 if (tmpText != null)
                     tmpText.text = attackData.attackName;
 
+                // Assign click
                 button.onClick.RemoveAllListeners();
                 button.onClick.AddListener(() => OnAttackChosen(attackData));
-
-                Debug.Log($"✅ Assigned '{attackData.attackName}' to Button {i}");
             }
             else
             {
@@ -119,33 +115,38 @@ public class BattleUIManager : MonoBehaviour
             }
         }
 
-        Debug.Log($"🟢 Finished updating attack buttons ({attacks.Count} available).");
+        Debug.Log($"🟢 Updated attack buttons ({attacks.Count} total).");
     }
 
-    void OnAttackChosen(AttackData attack)
+    // --- ATTACK EXECUTION ---
+   void OnAttackChosen(AttackData attack)
+{
+    if (currentTarget == null)
     {
-        if (currentTarget == null)
-        {
-            Debug.LogWarning("⚠️ No enemy selected! Click an enemy to target it first.");
-            return;
-        }
-
-        Debug.Log($"🎯 {playerRuntime.baseData.characterName} used {attack.attackName} on {currentTarget.characterData.characterName}!");
-
-        // Example of reducing usage
-        if (attack.currentUsage > 0)
-            attack.currentUsage--;
-
-        // Example placeholder for damage logic
-        int basePower = attack.power;
-        Debug.Log($"💥 Damage calculation pending: Base Power {basePower}");
-
-        // After attacking, return to main panel
-        attackSelectionPanel.SetActive(false);
-        mainActionPanel.SetActive(true);
+        Debug.LogWarning("⚠️ No enemy selected! Click an enemy to target it first.");
+        return;
     }
 
-    // ✅ Called by BattleManager when setting the player
+    Debug.Log($"🎯 {playerRuntime.baseData.characterName} used {attack.attackName} on {currentTarget.characterData.characterName}!");
+
+    if (attack.currentUsage > 0)
+        attack.currentUsage--;
+
+    // Placeholder for damage logic
+    Debug.Log($"💥 Damage pending (Power: {attack.power})");
+
+    // ✅ Reset color after the attack
+    var selector = currentTarget.GetComponent<EnemySelector>();
+    if (selector != null)
+        selector.ResetHighlight();
+
+    attackSelectionPanel.SetActive(false);
+    mainActionPanel.SetActive(true);
+
+    // ✅ Clear current target reference
+    currentTarget = null;
+}
+    // --- PLAYER LINKING ---
     public void SetPlayerController(CharacterBattleController controller)
     {
         playerController = controller;
@@ -168,13 +169,13 @@ public class BattleUIManager : MonoBehaviour
         UpdateAttackButtons();
     }
 
-    // ✅ Called by EnemySelector when an enemy is clicked
+    // --- ENEMY TARGETING ---
     public void SetTarget(CharacterBattleController target)
     {
-        if (target == null)
+        if (target == null || target.isPlayer)
             return;
 
-        // Clear old highlight
+        // Unhighlight old
         if (currentTarget != null && currentTarget.TryGetComponent(out EnemySelector prevSel))
             prevSel.Highlight(false);
 
@@ -185,4 +186,8 @@ public class BattleUIManager : MonoBehaviour
 
         Debug.Log($"🎯 Target selected: {currentTarget.characterData.characterName}");
     }
+    public bool IsSelectingTarget()
+{
+    return isSelectingTarget;
+}
 }

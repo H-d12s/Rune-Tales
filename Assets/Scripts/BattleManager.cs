@@ -8,7 +8,7 @@ public class BattleManager : MonoBehaviour
     public Transform[] enemySpawnPoints;
 
     [Header("Prefabs")]
-    public GameObject characterPrefab; // The character prefab (used for both player & enemies)
+    public GameObject characterPrefab; // Used for both player & enemies
 
     [Header("Team Data")]
     public List<CharacterData> playerTeam;
@@ -19,13 +19,11 @@ public class BattleManager : MonoBehaviour
 
     private BattleUIManager uiManager;
 
-    // Hardcoded offset to lower characters on screen
     [Header("Spawn Offset")]
     public float verticalOffset = -1.5f;
 
     void Start()
     {
-        // Find the UI manager in the scene
         uiManager = FindObjectOfType<BattleUIManager>();
         if (uiManager == null)
         {
@@ -39,7 +37,7 @@ public class BattleManager : MonoBehaviour
 
         Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
 
-        // ✅ After spawning, connect the *first* player to the UI
+        // Connect first player to UI
         if (playerControllers.Count > 0)
         {
             uiManager.SetPlayerController(playerControllers[0]);
@@ -51,49 +49,64 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints,
-                           List<CharacterBattleController> controllerList, bool isPlayerTeam)
+   private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints,
+                       List<CharacterBattleController> controllerList, bool isPlayerTeam)
+{
+    for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
     {
-        for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
+        Transform spawnPoint = spawnPoints[i];
+        if (spawnPoint == null)
         {
-            var spawnPoint = spawnPoints[i];
-            if (spawnPoint == null)
-            {
-                Debug.LogWarning($"⚠️ Missing spawn point {i} for {(isPlayerTeam ? "player" : "enemy")}!");
-                continue;
-            }
-
-            // Offset position downward
-            Vector3 spawnPos = spawnPoint.position + new Vector3(0f, verticalOffset, 0f);
-
-            // Instantiate prefab
-            GameObject characterObj = Instantiate(characterPrefab, spawnPos, Quaternion.identity);
-            characterObj.name = $"{(isPlayerTeam ? "Player" : "Enemy")}_{teamData[i].characterName}";
-
-            // Maintain prefab's scale (10,10,1)
-            characterObj.transform.localScale = new Vector3(10f, 10f, 1f);
-
-            // Ensure it has controller
-            var controller = characterObj.GetComponent<CharacterBattleController>();
-            if (controller == null)
-            {
-                Debug.LogError("❌ CharacterPrefab missing CharacterBattleController component!");
-                continue;
-            }
-
-            // Assign data and initialize
-            controller.characterData = teamData[i];
-            controller.InitializeCharacter();
-
-            // Flip enemies horizontally (preserve scale)
-            if (!isPlayerTeam)
-            {
-                var scale = characterObj.transform.localScale;
-                scale.x *= -1;
-                characterObj.transform.localScale = scale;
-            }
-
-            controllerList.Add(controller);
+            Debug.LogWarning($"⚠️ Missing spawn point {i} for {(isPlayerTeam ? "player" : "enemy")}!");
+            continue;
         }
+
+        // ✅ Apply vertical offset (lower them visually)
+        Vector3 spawnPos = spawnPoint.position + new Vector3(0, verticalOffset, 0);
+
+        GameObject characterObj = Instantiate(characterPrefab, spawnPos, Quaternion.identity);
+        characterObj.name = $"{(isPlayerTeam ? "Player" : "Enemy")}_{teamData[i].characterName}";
+
+        var controller = characterObj.GetComponent<CharacterBattleController>();
+        if (controller == null)
+        {
+            Debug.LogError("❌ CharacterPrefab missing CharacterBattleController component!");
+            continue;
+        }
+
+        controller.characterData = teamData[i];
+        controller.InitializeCharacter();
+
+        // Handle EnemySelector
+        var selector = characterObj.GetComponent<EnemySelector>();
+        if (selector == null)
+            selector = characterObj.AddComponent<EnemySelector>();
+
+        var collider = characterObj.GetComponent<Collider2D>();
+        if (collider == null)
+            collider = characterObj.AddComponent<BoxCollider2D>();
+
+        collider.isTrigger = true;
+
+        if (isPlayerTeam)
+        {
+            selector.enabled = false;
+            collider.enabled = false;
+        }
+        else
+        {
+            selector.enabled = true;
+            collider.enabled = true;
+
+            // Flip enemies horizontally
+            var scale = characterObj.transform.localScale;
+            scale.x = Mathf.Abs(scale.x) * -1; // ensure consistent flip
+            characterObj.transform.localScale = scale;
+        }
+
+        controllerList.Add(controller);
     }
+}
+
+
 }
