@@ -51,25 +51,24 @@ public class EnemySelector : MonoBehaviour
         {
             if (flashRoutine != null)
                 StopCoroutine(flashRoutine);
-            flashRoutine = StartCoroutine(FlashRed());
+            flashRoutine = StartCoroutine(SmoothFlashRed());
         }
         else
         {
             if (flashRoutine != null)
                 StopCoroutine(flashRoutine);
-
             spriteRenderer.color = originalColor;
             flashRoutine = null;
         }
     }
 
-    IEnumerator FlashRed()
+    IEnumerator SmoothFlashRed()
     {
         while (true)
         {
-            // Ping-pong between red and original color
-            float t = Mathf.PingPong(Time.time * 4f, 1f); // speed = 4
-            spriteRenderer.color = Color.Lerp(originalColor, Color.red, t);
+            // Sinusoidal wave for smooth pulse
+            float pulse = (Mathf.Sin(Time.time * 4f) + 1f) / 2f; // 0→1 smoothly
+            spriteRenderer.color = Color.Lerp(originalColor, Color.red, pulse);
             yield return null;
         }
     }
