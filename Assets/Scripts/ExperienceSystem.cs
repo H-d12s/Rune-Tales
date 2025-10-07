@@ -109,20 +109,66 @@ public class ExperienceSystem : MonoBehaviour
         Debug.Log($"📈 {data.characterName} stats increased (runtime only)!");
         Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
     }
+private void LearnNewAttacks(CharacterRuntime runtime)
+{
+    var availableAttacks = runtime.baseData.GetAvailableAttacks(runtime.currentLevel);
 
-    private void LearnNewAttacks(CharacterRuntime runtime)
+    foreach (var newAttack in availableAttacks)
     {
-        var newAttacks = runtime.baseData.GetAvailableAttacks(runtime.currentLevel);
-        foreach (var attack in newAttacks)
+        if (runtime.equippedAttacks.Contains(newAttack))
+            continue; // already learned before
+
+        if (runtime.equippedAttacks.Count < 2)
         {
-            if (!runtime.equippedAttacks.Contains(attack))
-            {
-                runtime.equippedAttacks.Add(attack);
-                Debug.Log($"✨ {runtime.baseData.characterName} learned {attack.attackName}!");
-                ShowLearnAttackPopup(runtime.baseData.characterName, attack.attackName);
-            }
+            // Simply learn it if there's room
+            runtime.equippedAttacks.Add(newAttack);
+            ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+        }
+        else
+        {
+            // ⚠️ Already 2 moves → prompt player
+            PromptMoveReplace(runtime, newAttack);
         }
     }
+}
+
+private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
+{
+    Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows 2 moves!");
+
+    // You can replace this with a real UI later.
+    // For now, we simulate with a console prompt style:
+    Debug.Log($"Choose a move to replace:");
+    for (int i = 0; i < runtime.equippedAttacks.Count; i++)
+    {
+        Debug.Log($"[{i + 1}] {runtime.equippedAttacks[i].attackName}");
+    }
+    Debug.Log($"[0] Cancel (do not learn {newAttack.attackName})");
+
+    // TEMPORARY: auto-replace the first move for testing (no input system yet)
+    int chosenIndex = 1; // You’ll replace this with player input later
+
+    if (chosenIndex == 0)
+    {
+        Debug.Log($"❌ {runtime.baseData.characterName} decided not to learn {newAttack.attackName}.");
+        return;
+    }
+
+    int indexToReplace = chosenIndex - 1;
+
+    if (indexToReplace >= 0 && indexToReplace < runtime.equippedAttacks.Count)
+    {
+        var oldAttack = runtime.equippedAttacks[indexToReplace];
+        runtime.equippedAttacks[indexToReplace] = newAttack;
+        Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
+        ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+    }
+    else
+    {
+        Debug.Log($"❌ Invalid choice. {runtime.baseData.characterName} did not learn {newAttack.attackName}.");
+    }
+}
+
 
     private void ShowLevelUpPopup(string charName, int newLevel)
     {
