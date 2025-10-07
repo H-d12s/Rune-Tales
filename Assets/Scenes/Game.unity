@@ -493,8 +493,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   mainActionPanel: {fileID: 1108701644}
   attackSelectionPanel: {fileID: 1541334942}
-  messagePanel: {fileID: 0}
-  messageText: {fileID: 0}
   attackButton: {fileID: 828685769}
   retreatButton: {fileID: 1781679024}
   attackButtons:
@@ -2754,7 +2752,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
