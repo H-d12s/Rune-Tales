@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class CharacterBattleController : MonoBehaviour
 {
@@ -6,20 +7,17 @@ public class CharacterBattleController : MonoBehaviour
     public CharacterData characterData;
     public SpriteRenderer spriteRenderer;
 
-    [HideInInspector] public bool isPlayer; // ✅ identifies if this character belongs to the player team
+    [HideInInspector] public bool isPlayer;
 
     private CharacterRuntime runtimeCharacter;
+    private Color originalColor;
 
     void Start()
     {
-        // Only auto-initialize if CharacterData was assigned before Start()
         if (characterData != null)
             InitializeCharacter();
     }
 
-    /// <summary>
-    /// Called by BattleManager right after instantiation to set up the character.
-    /// </summary>
     public void InitializeCharacter()
     {
         if (characterData == null)
@@ -28,36 +26,48 @@ public class CharacterBattleController : MonoBehaviour
             return;
         }
 
-        // Ensure we have a SpriteRenderer
         if (spriteRenderer == null)
             spriteRenderer = GetComponent<SpriteRenderer>();
 
-        // Create runtime data
-        runtimeCharacter = new CharacterRuntime(characterData, 1); // Level 1 start
+        runtimeCharacter = new CharacterRuntime(characterData, 1);
+        originalColor = spriteRenderer.color;
 
-        // Assign sprite from CharacterData
         if (characterData.portrait != null)
-        {
             spriteRenderer.sprite = characterData.portrait;
-            Debug.Log($"🖼️ Assigned sprite for {characterData.characterName}");
-        }
-        else
-        {
-            Debug.LogWarning($"⚠️ {characterData.characterName} has no portrait assigned!");
-        }
 
-        Debug.Log($"✅ Spawned {(isPlayer ? "Player" : "Enemy")} {characterData.characterName} with {runtimeCharacter.equippedAttacks.Count} attacks.");
+        Debug.Log($"✅ {(isPlayer ? "Player" : "Enemy")} {characterData.characterName} initialized ({runtimeCharacter.currentHP} HP)");
     }
 
-    /// <summary>
-    /// Expose runtime character for other scripts (like UI or BattleManager).
-    /// </summary>
-    public CharacterRuntime GetRuntimeCharacter()
+    public CharacterRuntime GetRuntimeCharacter() => runtimeCharacter;
+
+    // === DAMAGE ===
+    public void TakeDamage(int amount)
     {
         if (runtimeCharacter == null)
         {
-            Debug.LogWarning($"⚠️ Runtime character for {characterData?.characterName ?? "UNKNOWN"} not yet initialized!");
+            Debug.LogError($"❌ {characterData.characterName} has no runtime data!");
+            return;
         }
-        return runtimeCharacter;
+
+        runtimeCharacter.TakeDamage(amount);
+        StartCoroutine(FlashOnHit());
+
+        if (runtimeCharacter.currentHP <= 0)
+            StartCoroutine(HandleDeath());
+    }
+
+    private IEnumerator FlashOnHit()
+    {
+        spriteRenderer.color = Color.red;
+        yield return new WaitForSeconds(0.15f);
+        spriteRenderer.color = originalColor;
+    }
+
+    public IEnumerator HandleDeath()
+    {
+        Debug.Log($"💀 {characterData.characterName} has been defeated!");
+        spriteRenderer.color = Color.gray;
+        yield return new WaitForSeconds(0.5f);
+        Destroy(gameObject);
     }
 }

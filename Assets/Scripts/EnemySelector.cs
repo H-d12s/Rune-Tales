@@ -11,6 +11,8 @@ public class EnemySelector : MonoBehaviour
     private Color originalColor;
     private Coroutine flashRoutine;
 
+    private static EnemySelector currentlySelected; // ✅ only one can be active
+
     void Awake()
     {
         controller = GetComponent<CharacterBattleController>();
@@ -38,6 +40,12 @@ public class EnemySelector : MonoBehaviour
             return;
         }
 
+        // Deselect previously selected enemy
+        if (currentlySelected != null && currentlySelected != this)
+            currentlySelected.Highlight(false);
+
+        // Select this one
+        currentlySelected = this;
         uiManager.SetTarget(controller);
         Highlight(true);
     }
@@ -57,8 +65,12 @@ public class EnemySelector : MonoBehaviour
         {
             if (flashRoutine != null)
                 StopCoroutine(flashRoutine);
-            spriteRenderer.color = originalColor;
             flashRoutine = null;
+            spriteRenderer.color = originalColor;
+
+            // Clear global selection if this was selected
+            if (currentlySelected == this)
+                currentlySelected = null;
         }
     }
 
@@ -66,8 +78,7 @@ public class EnemySelector : MonoBehaviour
     {
         while (true)
         {
-            // Sinusoidal wave for smooth pulse
-            float pulse = (Mathf.Sin(Time.time * 4f) + 1f) / 2f; // 0→1 smoothly
+            float pulse = (Mathf.Sin(Time.time * 4f) + 1f) / 2f;
             spriteRenderer.color = Color.Lerp(originalColor, Color.red, pulse);
             yield return null;
         }
@@ -76,5 +87,14 @@ public class EnemySelector : MonoBehaviour
     public void ResetHighlight()
     {
         Highlight(false);
+    }
+
+    public void DisableSelection()
+    {
+        // ❌ Stop flashing, disable click
+        Highlight(false);
+        var collider = GetComponent<Collider2D>();
+        if (collider != null)
+            collider.enabled = false;
     }
 }
