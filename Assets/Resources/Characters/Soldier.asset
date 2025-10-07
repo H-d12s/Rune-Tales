@@ -15,10 +15,10 @@ MonoBehaviour:
   characterName: Helios
   characterTag: warrior
   portrait: {fileID: -3868812660829053132, guid: 40a267bbb90bf5f459371b3d67ca3246, type: 3}
-  baseHP: 208
-  baseAttack: 34
-  baseDefense: 22
-  baseSpeed: 15
+  baseHP: 100
+  baseAttack: 20
+  baseDefense: 20
+  baseSpeed: 12
   learnableAttacks:
   - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
     levelToLearn: 1

@@ -5,7 +5,7 @@ public class ExperienceSystem : MonoBehaviour
 {
     [Header("XP Curve Settings")]
     public int baseXPRequired = 50;
-    public float growthRate = 1.2f; 
+    public float growthRate = 1.2f;
     public int maxLevel = 30;
 
     [Header("Debug Info")]
@@ -19,9 +19,6 @@ public class ExperienceSystem : MonoBehaviour
         totalXPThisBattle = 0;
     }
 
-    /// <summary>
-    /// Called from BattleManager when an enemy dies.
-    /// </summary>
     public void GrantXP(CharacterData enemyData)
     {
         if (enemyData == null || playerControllers == null)
@@ -61,7 +58,7 @@ public class ExperienceSystem : MonoBehaviour
             runtime.currentLevel++;
             xpToNext = GetXPToNextLevel(runtime.currentLevel);
 
-            // Stat scaling
+            // Apply safe stat scaling
             ApplyStatGrowth(runtime);
 
             // Unlock new attacks
@@ -98,19 +95,19 @@ public class ExperienceSystem : MonoBehaviour
             case "tank":
                 hpGrowth = 0.25f; atkGrowth = 0.08f; defGrowth = 0.15f; spdGrowth = 0.02f;
                 break;
-            default:
-                break;
         }
 
-        data.baseHP = Mathf.RoundToInt(data.baseHP * (1 + hpGrowth));
-        data.baseAttack = Mathf.RoundToInt(data.baseAttack * (1 + atkGrowth));
-        data.baseDefense = Mathf.RoundToInt(data.baseDefense * (1 + defGrowth));
-        data.baseSpeed = Mathf.RoundToInt(data.baseSpeed * (1 + spdGrowth));
+        // ✅ Apply growth only to runtime values (not baseData)
+        runtime.runtimeHP = Mathf.RoundToInt(runtime.runtimeHP * (1 + hpGrowth));
+        runtime.runtimeAttack = Mathf.RoundToInt(runtime.runtimeAttack * (1 + atkGrowth));
+        runtime.runtimeDefense = Mathf.RoundToInt(runtime.runtimeDefense * (1 + defGrowth));
+        runtime.runtimeSpeed = Mathf.RoundToInt(runtime.runtimeSpeed * (1 + spdGrowth));
 
-        runtime.currentHP = runtime.MaxHP;
+        // Heal to full HP after level up
+        runtime.currentHP = runtime.runtimeHP;
 
-        Debug.Log($"📈 {data.characterName} stats increased!");
-        Debug.Log($"HP: {data.baseHP}, ATK: {data.baseAttack}, DEF: {data.baseDefense}, SPD: {data.baseSpeed}");
+        Debug.Log($"📈 {data.characterName} stats increased (runtime only)!");
+        Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
     }
 
     private void LearnNewAttacks(CharacterRuntime runtime)
@@ -130,13 +127,13 @@ public class ExperienceSystem : MonoBehaviour
     private void ShowLevelUpPopup(string charName, int newLevel)
     {
         Debug.Log($"🎉 {charName} reached Level {newLevel}!");
-        // OPTIONAL: hook to a UI popup later
+        // hook UI later
     }
 
     private void ShowLearnAttackPopup(string charName, string attackName)
     {
         Debug.Log($"🔥 {charName} learned a new attack: {attackName}!");
-        // OPTIONAL: hook to popup UI later
+        // hook UI later
     }
 
     public int GetXPToNextLevel(int currentLevel)
@@ -146,4 +143,3 @@ public class ExperienceSystem : MonoBehaviour
 
     private static Dictionary<string, int> PlayerXPData = new Dictionary<string, int>();
 }
-//hi
