@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 public class BattleManager : MonoBehaviour
 {
+    private ExperienceSystem expSystem;
+
     [Header("Spawn Points")]
     public Transform[] playerSpawnPoints;
     public Transform[] enemySpawnPoints;
@@ -31,6 +33,11 @@ public class BattleManager : MonoBehaviour
             return;
         }
 
+        // ✅ Get ExperienceSystem reference
+        expSystem = FindObjectOfType<ExperienceSystem>();
+        if (expSystem == null)
+            Debug.LogError("❌ No ExperienceSystem found in the scene!");
+        
         // Spawn both sides
         SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
         SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
@@ -40,6 +47,10 @@ public class BattleManager : MonoBehaviour
         // Connect UI to first player
         if (playerControllers.Count > 0)
             uiManager.SetPlayerController(playerControllers[0]);
+
+        // ✅ Initialize XP system with player controllers
+        if (expSystem != null)
+            expSystem.Initialize(playerControllers);
     }
 
     private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints,
@@ -91,66 +102,68 @@ public class BattleManager : MonoBehaviour
     /// <summary>
     /// Called by UI when an attack is performed.
     /// </summary>
-  public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
-{
-    if (attacker == null || target == null || attack == null)
+    public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
     {
-        Debug.LogError("❌ Invalid attack parameters!");
-        return;
-    }
+        if (attacker == null || target == null || attack == null)
+        {
+            Debug.LogError("❌ Invalid attack parameters!");
+            return;
+        }
 
-    // --- Base Damage Calculation ---
-    int baseDamage = Mathf.Max(1, attack.power + attacker.GetRuntimeCharacter().Attack - target.GetRuntimeCharacter().Defense / 2);
+        // --- 🎯 Base Damage Calculation ---
+        int baseDamage = Mathf.Max(1, attack.power + attacker.GetRuntimeCharacter().Attack - target.GetRuntimeCharacter().Defense / 2);
 
-    // --- 🎲 Dice Roll Mechanic ---
-    int diceRoll = Random.Range(1, 11); // 1–10 inclusive
-    float multiplier;
+        // --- 🎲 Dice Roll Mechanic ---
+        int diceRoll = Random.Range(1, 11); // 1–10 inclusive
+        float multiplier;
 
-    if (diceRoll >= 8)
-        multiplier = 1.25f; // Strong hit
-    else if (diceRoll <= 3)
-        multiplier = 0.75f; // Weak hit
-    else
-        multiplier = 1f;    // Normal
+        if (diceRoll >= 8)
+            multiplier = 1.25f; // Strong hit
+        else if (diceRoll <= 3)
+            multiplier = 0.75f; // Weak hit
+        else
+            multiplier = 1f;    // Normal
 
-    int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
+        int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
 
-    // --- Apply Damage ---
-    target.GetRuntimeCharacter().TakeDamage(finalDamage);
+        // --- 💥 Apply Damage ---
+        target.GetRuntimeCharacter().TakeDamage(finalDamage);
 
-    // --- Log Output ---
-    string hitType = multiplier > 1f ? "💥 Strong Hit!" :
-                     multiplier < 1f ? "🩹 Weak Hit!" :
-                     "⚔️ Normal Hit!";
-    Debug.Log($"🎲 Dice Roll: {diceRoll} → {hitType}");
-    Debug.Log($"⚔️ {attacker.characterData.characterName} dealt {finalDamage} damage to {target.characterData.characterName} using {attack.attackName}");
+        // --- 🪄 Log Output ---
+        string hitType = multiplier > 1f ? "💥 Critical Hit!" :
+                         multiplier < 1f ? "🩹 Weak Hit!" :
+                         "⚔️ Normal Hit!";
+        Debug.Log($"🎲 Dice Roll: {diceRoll} → {hitType}");
+        Debug.Log($"⚔️ {attacker.characterData.characterName} dealt {finalDamage} damage to {target.characterData.characterName} using {attack.attackName}");
 
-    // --- Death Handling ---
-    if (!target.GetRuntimeCharacter().IsAlive)
-    {
-        Debug.Log($"💀 {target.characterData.characterName} has been defeated!");
+        // --- 💀 Death Handling ---
+        if (!target.GetRuntimeCharacter().IsAlive)
+        {
+            Debug.Log($"💀 {target.characterData.characterName} has been defeated!");
 
-        // Disable selection/collider
-        var selector = target.GetComponent<EnemySelector>();
-        if (selector != null)
-            selector.DisableSelection();
+            // Disable selection & collider
+            var selector = target.GetComponent<EnemySelector>();
+            if (selector != null)
+                selector.DisableSelection();
 
-        var col = target.GetComponent<Collider2D>();
-        if (col != null)
-            col.enabled = false;
+            var col = target.GetComponent<Collider2D>();
+            if (col != null)
+                col.enabled = false;
 
-        // Start death coroutine (fade & destroy)
-        var targetController = target.GetComponent<CharacterBattleController>();
-        if (targetController != null)
-            targetController.StartCoroutine(targetController.HandleDeath());
+            // Start death coroutine (fade & destroy)
+            var targetController = target.GetComponent<CharacterBattleController>();
+            if (targetController != null)
+                targetController.StartCoroutine(targetController.HandleDeath());
 
-        // Remove from enemy list to prevent re-targeting
-        if (enemyControllers.Contains(target))
-            enemyControllers.Remove(target);
+            // Remove from enemy list
+            if (enemyControllers.Contains(target))
+                enemyControllers.Remove(target);
+
+            // --- 🧠 Award EXP ---
+            if (attacker.isPlayer && expSystem != null)
+            {
+                expSystem.GrantXP(target.characterData);
+            }
+        }
     }
 }
-
-}
-
-
-

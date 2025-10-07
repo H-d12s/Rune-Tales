@@ -9,13 +9,22 @@ public class CharacterRuntime
 
     // --- Dynamic Stats ---
     public int currentHP;
+    public int currentXP;
+    public int xpToNextLevel;
+
+    // --- Runtime copies of stats (modifiable at runtime) ---
+    public int runtimeHP;
+    public int runtimeAttack;
+    public int runtimeDefense;
+    public int runtimeSpeed;
+
     public List<AttackData> equippedAttacks = new List<AttackData>();
 
     // --- Stat Accessors ---
-    public int MaxHP => baseData != null ? baseData.baseHP : 0;
-    public int Attack => baseData != null ? baseData.baseAttack : 0;
-    public int Defense => baseData != null ? baseData.baseDefense : 0;
-    public int Speed => baseData != null ? baseData.baseSpeed : 0;
+    public int MaxHP => runtimeHP;
+    public int Attack => runtimeAttack;
+    public int Defense => runtimeDefense;
+    public int Speed => runtimeSpeed;
 
     // --- Constructor ---
     public CharacterRuntime(CharacterData data, int level)
@@ -28,6 +37,13 @@ public class CharacterRuntime
 
         baseData = data;
         currentLevel = level;
+
+        // Copy stats from base data
+        runtimeHP = data.baseHP;
+        runtimeAttack = data.baseAttack;
+        runtimeDefense = data.baseDefense;
+        runtimeSpeed = data.baseSpeed;
+
         currentHP = MaxHP;
 
         // Initialize attacks

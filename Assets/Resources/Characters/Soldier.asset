@@ -13,16 +13,17 @@ MonoBehaviour:
   m_Name: Soldier
   m_EditorClassIdentifier: 
   characterName: Helios
+  characterTag: warrior
   portrait: {fileID: -3868812660829053132, guid: 40a267bbb90bf5f459371b3d67ca3246, type: 3}
-  baseHP: 100
-  baseAttack: 20
-  baseDefense: 15
+  baseHP: 208
+  baseAttack: 34
+  baseDefense: 22
   baseSpeed: 15
   learnableAttacks:
   - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
     levelToLearn: 1
   - attack: {fileID: 11400000, guid: 8647e6f3bcec5e34788ada1c444b263f, type: 2}
-    levelToLearn: 1
+    levelToLearn: 2
   - attack: {fileID: 11400000, guid: 622b67824965507458359ec36c9bd139, type: 2}
     levelToLearn: 10
   - attack: {fileID: 11400000, guid: b6ce87b59abe3b24286ef37b6a1eb409, type: 2}
@@ -34,3 +35,4 @@ MonoBehaviour:
   - attack: {fileID: 11400000, guid: 25e03b0f4093e8c459878cb213c02cd4, type: 2}
     levelToLearn: 30
   ultimateSkill: {fileID: 0}
+  expReward: 50

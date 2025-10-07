@@ -6,6 +6,7 @@ public class CharacterData : ScriptableObject
 {
     [Header("Basic Info")]
     public string characterName;
+    public string characterTag;
     public Sprite portrait;
 
     [Header("Base Stats")]
