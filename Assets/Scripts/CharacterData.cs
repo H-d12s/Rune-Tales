@@ -20,6 +20,9 @@ public class CharacterData : ScriptableObject
     [Header("Ultimate Skill (From Weapon)")]
     public AttackData ultimateSkill;
 
+    [Header("XP Reward")]
+public int expReward = 50;
+
     /// <summary>
     /// Returns all attacks the character has unlocked at this level.
     /// </summary>

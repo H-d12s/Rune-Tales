@@ -230,7 +230,7 @@ Canvas:
   m_OverridePixelPerfect: 0
   m_SortingBucketNormalizedSize: 0
   m_VertexColorAlwaysGammaSpace: 0
-  m_AdditionalShaderChannelsFlag: 0
+  m_AdditionalShaderChannelsFlag: 25
   m_UpdateRectTransformForStandalone: 0
   m_SortingLayerID: 0
   m_SortingOrder: 0
@@ -396,8 +396,6 @@ MonoBehaviour:
   mainActionPanel: {fileID: 1108701644}
   attackSelectionPanel: {fileID: 1541334942}
   attackButton: {fileID: 828685769}
-  equipmentButton: {fileID: 1310249084}
-  persuadeButton: {fileID: 690288904}
   retreatButton: {fileID: 1781679024}
   attackButtons:
   - {fileID: 1085930448}
