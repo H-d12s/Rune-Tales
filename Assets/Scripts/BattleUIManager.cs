@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 
 public class BattleUIManager : MonoBehaviour
@@ -20,47 +22,75 @@ public class BattleUIManager : MonoBehaviour
     private CharacterRuntime playerRuntime;
     private CharacterBattleController currentTarget;
     private BattleManager battleManager;
-    private bool isSelectingTarget = false;
 
+    private bool isSelectingTarget = false;
+    private AttackData selectedAttack;
+
+    // Callback from BattleManager
+    private Action<AttackData, CharacterBattleController> onAttackConfirmed;
+
+    // =====================================================================
+    // 🏁 INITIALIZATION
+    // =====================================================================
     void Start()
     {
         StartCoroutine(InitializeUI());
     }
 
-    private System.Collections.IEnumerator InitializeUI()
+    private IEnumerator InitializeUI()
     {
         yield return null;
 
-        battleManager = FindObjectOfType<BattleManager>();
-        if (playerController == null)
-        {
-            Debug.LogError("❌ No Player Character linked!");
-            yield break;
-        }
+        battleManager = FindFirstObjectByType<BattleManager>();
 
-        playerRuntime = playerController.GetRuntimeCharacter();
-        attackSelectionPanel.SetActive(false);
+        // ✅ Panels
+        if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
+        if (mainActionPanel) mainActionPanel.SetActive(true); // visible at start
 
-        attackButton.onClick.AddListener(OnAttackPressed);
-        retreatButton.onClick.AddListener(OnRetreatPressed);
+        // ✅ Buttons
+        if (attackButton)
+            attackButton.onClick.AddListener(OnAttackPressed);
+
+        if (retreatButton)
+            retreatButton.onClick.AddListener(OnRetreatPressed);
     }
 
-    void OnAttackPressed()
+    // =====================================================================
+    // 🎮 PLAYER COMMAND PHASE
+    // =====================================================================
+    public void BeginPlayerChoice(Action<AttackData, CharacterBattleController> callback)
     {
-        mainActionPanel.SetActive(false);
-        attackSelectionPanel.SetActive(true);
-        isSelectingTarget = true;
+        onAttackConfirmed = callback;
+        ShowMainActions();
+    }
+
+    public void SetPlayerController(CharacterBattleController controller)
+    {
+        playerController = controller;
+        playerRuntime = controller.GetRuntimeCharacter();
         UpdateAttackButtons();
     }
 
-    void OnRetreatPressed()
+    // =====================================================================
+    // ⚔️ ATTACK BUTTON HANDLING
+    // =====================================================================
+    private void OnAttackPressed()
+    {
+        if (mainActionPanel) mainActionPanel.SetActive(false);
+        if (attackSelectionPanel) attackSelectionPanel.SetActive(true);
+        UpdateAttackButtons();
+    }
+
+    private void OnRetreatPressed()
     {
         Debug.Log("🏃 Retreat pressed (todo)");
     }
 
-    void UpdateAttackButtons()
+    private void UpdateAttackButtons()
     {
-        var attacks = playerRuntime.equippedAttacks;
+        var attacks = playerRuntime?.equippedAttacks;
+        if (attacks == null) return;
+
         for (int i = 0; i < attackButtons.Count; i++)
         {
             var button = attackButtons[i];
@@ -69,6 +99,7 @@ public class BattleUIManager : MonoBehaviour
                 var attack = attacks[i];
                 button.gameObject.SetActive(true);
                 button.GetComponentInChildren<TextMeshProUGUI>().text = attack.attackName;
+
                 button.onClick.RemoveAllListeners();
                 button.onClick.AddListener(() => OnAttackChosen(attack));
             }
@@ -79,50 +110,73 @@ public class BattleUIManager : MonoBehaviour
         }
     }
 
-  void OnAttackChosen(AttackData attack)
-{
-    if (currentTarget == null)
+    private void OnAttackChosen(AttackData attack)
     {
-        Debug.LogWarning("⚠️ No target selected!");
-        return;
+        if (attack == null)
+        {
+            Debug.LogWarning("⚠️ Attack missing!");
+            return;
+        }
+
+        selectedAttack = attack;
+        isSelectingTarget = true;
+        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a target...");
     }
 
-    Debug.Log($"🎯 {playerRuntime.baseData.characterName} used {attack.attackName} on {currentTarget.characterData.characterName}");
-
-    if (attack.currentUsage > 0)
-        attack.currentUsage--;
-
-    // ✅ Deal damage via BattleManager
-    battleManager.PerformAttack(playerController, currentTarget, attack);
-
-    // ✅ Reset enemy highlight after attacking
-    var selector = currentTarget.GetComponent<EnemySelector>();
-    if (selector != null)
-        selector.Highlight(false); // turn off highlight
-
-    // ✅ Reset panels
-    attackSelectionPanel.SetActive(false);
-    mainActionPanel.SetActive(true);
-
-    // ✅ Clear targeting state
-    isSelectingTarget = false;
-    currentTarget = null;
-}
-    public void SetPlayerController(CharacterBattleController controller)
-    {
-        playerController = controller;
-        playerRuntime = controller.GetRuntimeCharacter();
-        UpdateAttackButtons();
-    }
-
+    // =====================================================================
+    // 🎯 TARGET SELECTION
+    // =====================================================================
     public void SetTarget(CharacterBattleController target)
     {
         if (!isSelectingTarget || target.isPlayer)
             return;
 
         currentTarget = target;
+        isSelectingTarget = false;
+
         Debug.Log($"🎯 Target selected: {target.characterData.characterName}");
+        Debug.Log($"⚔️ {playerController.characterData.characterName} attacks {target.characterData.characterName}!");
+
+        // ✅ Confirm to BattleManager
+        if (selectedAttack != null)
+            onAttackConfirmed?.Invoke(selectedAttack, currentTarget);
+        else
+            Debug.LogWarning("⚠️ No attack selected before choosing target!");
+
+        // Reset flicker/highlight
+        var selector = target.GetComponent<EnemySelector>();
+        if (selector != null)
+            selector.Highlight(false);
+
+        HideAll();
+        selectedAttack = null;
     }
 
+    // =====================================================================
+    // 🧩 PANEL CONTROL
+    // =====================================================================
+    public void HideAll()
+    {
+        if (mainActionPanel) mainActionPanel.SetActive(false);
+        if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
+
+        isSelectingTarget = false;
+        currentTarget = null;
+        selectedAttack = null;
+    }
+
+    public void ShowMainActions()
+    {
+        if (mainActionPanel) mainActionPanel.SetActive(true);
+        if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
+
+        isSelectingTarget = false;
+        currentTarget = null;
+        selectedAttack = null;
+    }
+
+    // =====================================================================
+    // ⚙️ ACCESSORS
+    // =====================================================================
     public bool IsSelectingTarget() => isSelectingTarget;
 }

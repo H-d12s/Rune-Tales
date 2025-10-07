@@ -11,7 +11,7 @@ public class EnemySelector : MonoBehaviour
     private Color originalColor;
     private Coroutine flashRoutine;
 
-    private static EnemySelector currentlySelected; // ✅ only one can be active
+    private static EnemySelector currentlySelected; // Only one highlighted at a time
 
     void Awake()
     {
@@ -26,7 +26,9 @@ public class EnemySelector : MonoBehaviour
     {
         uiManager = FindFirstObjectByType<BattleUIManager>();
         if (uiManager == null)
+        {
             Debug.LogError("❌ EnemySelector: BattleUIManager not found in scene!");
+        }
     }
 
     void OnMouseDown()
@@ -34,22 +36,26 @@ public class EnemySelector : MonoBehaviour
         if (uiManager == null || controller == null)
             return;
 
+        // 🔸 Only allow selecting when in targeting mode
         if (!uiManager.IsSelectingTarget())
-        {
-            Debug.Log("⛔ Not in targeting mode — ignoring click");
             return;
-        }
 
-        // Deselect previously selected enemy
+        // Deselect previous enemy
         if (currentlySelected != null && currentlySelected != this)
             currentlySelected.Highlight(false);
 
-        // Select this one
         currentlySelected = this;
-        uiManager.SetTarget(controller);
+
+        // Highlight red briefly to confirm click
         Highlight(true);
+
+        // Send selection to BattleUIManager
+        uiManager.SetTarget(controller);
     }
 
+    /// <summary>
+    /// Enables or disables red highlight flashing.
+    /// </summary>
     public void Highlight(bool on)
     {
         if (spriteRenderer == null)
@@ -59,42 +65,53 @@ public class EnemySelector : MonoBehaviour
         {
             if (flashRoutine != null)
                 StopCoroutine(flashRoutine);
+
             flashRoutine = StartCoroutine(SmoothFlashRed());
         }
         else
         {
             if (flashRoutine != null)
                 StopCoroutine(flashRoutine);
+
             flashRoutine = null;
             spriteRenderer.color = originalColor;
 
-            // Clear global selection if this was selected
             if (currentlySelected == this)
                 currentlySelected = null;
         }
     }
 
-    IEnumerator SmoothFlashRed()
+    /// <summary>
+    /// Smooth flashing red effect for selection.
+    /// </summary>
+    private IEnumerator SmoothFlashRed()
     {
+        float flashTime = 0f;
         while (true)
         {
-            float pulse = (Mathf.Sin(Time.time * 4f) + 1f) / 2f;
+            flashTime += Time.deltaTime * 4f;
+            float pulse = (Mathf.Sin(flashTime) + 1f) * 0.5f;
             spriteRenderer.color = Color.Lerp(originalColor, Color.red, pulse);
             yield return null;
         }
     }
 
+    /// <summary>
+    /// Immediately stops any highlight and resets color.
+    /// </summary>
     public void ResetHighlight()
     {
         Highlight(false);
     }
 
+    /// <summary>
+    /// Used when the enemy dies — disables its collider and highlight completely.
+    /// </summary>
     public void DisableSelection()
     {
-        // ❌ Stop flashing, disable click
         Highlight(false);
-        var collider = GetComponent<Collider2D>();
-        if (collider != null)
-            collider.enabled = false;
+        var col = GetComponent<Collider2D>();
+        if (col != null)
+            col.enabled = false;
     }
 }

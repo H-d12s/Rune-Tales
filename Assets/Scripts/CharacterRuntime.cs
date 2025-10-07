@@ -72,7 +72,8 @@ public class CharacterRuntime
     {
         damage = Mathf.Max(1, damage);
         currentHP = Mathf.Max(0, currentHP - damage);
-        Debug.Log($"💔 {baseData.characterName} took {damage} damage! (HP: {currentHP}/{MaxHP})");
+        // ❌ Removed redundant Debug.Log here to prevent double messages
+        // Logging is handled inside BattleManager.PerformAttack()
 
         if (currentHP <= 0)
             Debug.Log($"☠️ {baseData.characterName} has been defeated!");

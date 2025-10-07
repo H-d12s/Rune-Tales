@@ -12,6 +12,7 @@ public class ExperienceSystem : MonoBehaviour
     public int totalXPThisBattle;
 
     private List<CharacterBattleController> playerControllers;
+    private static Dictionary<string, int> PlayerXPData = new Dictionary<string, int>();
 
     public void Initialize(List<CharacterBattleController> playerTeam)
     {
@@ -58,14 +59,12 @@ public class ExperienceSystem : MonoBehaviour
             runtime.currentLevel++;
             xpToNext = GetXPToNextLevel(runtime.currentLevel);
 
-            // Apply safe stat scaling
             ApplyStatGrowth(runtime);
-
-            // Unlock new attacks
-            LearnNewAttacks(runtime);
-
             Debug.Log($"⬆️ {runtime.baseData.characterName} leveled up! (Now Level {runtime.currentLevel})");
             ShowLevelUpPopup(runtime.baseData.characterName, runtime.currentLevel);
+
+            // ✅ Check for new attacks after level up
+            LearnNewAttacks(runtime);
         }
 
         PlayerXPData[runtime.baseData.characterName] = currentXP;
@@ -97,96 +96,66 @@ public class ExperienceSystem : MonoBehaviour
                 break;
         }
 
-        // ✅ Apply growth only to runtime values (not baseData)
         runtime.runtimeHP = Mathf.RoundToInt(runtime.runtimeHP * (1 + hpGrowth));
         runtime.runtimeAttack = Mathf.RoundToInt(runtime.runtimeAttack * (1 + atkGrowth));
         runtime.runtimeDefense = Mathf.RoundToInt(runtime.runtimeDefense * (1 + defGrowth));
         runtime.runtimeSpeed = Mathf.RoundToInt(runtime.runtimeSpeed * (1 + spdGrowth));
 
-        // Heal to full HP after level up
         runtime.currentHP = runtime.runtimeHP;
 
         Debug.Log($"📈 {data.characterName} stats increased (runtime only)!");
         Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
     }
-private void LearnNewAttacks(CharacterRuntime runtime)
-{
-    var availableAttacks = runtime.baseData.GetAvailableAttacks(runtime.currentLevel);
 
-    foreach (var newAttack in availableAttacks)
+    // ✅ Restored Pokémon-style move learning
+    private void LearnNewAttacks(CharacterRuntime runtime)
     {
-        if (runtime.equippedAttacks.Contains(newAttack))
-            continue; // already learned before
+        var availableAttacks = runtime.baseData.GetAvailableAttacks(runtime.currentLevel);
 
-        if (runtime.equippedAttacks.Count < 2)
+        foreach (var newAttack in availableAttacks)
         {
-            // Simply learn it if there's room
-            runtime.equippedAttacks.Add(newAttack);
+            if (runtime.equippedAttacks.Contains(newAttack))
+                continue; // already learned before
+
+            if (runtime.equippedAttacks.Count < 2)
+            {
+                runtime.equippedAttacks.Add(newAttack);
+                ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+            }
+            else
+            {
+                PromptMoveReplace(runtime, newAttack);
+            }
+        }
+    }
+
+    private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
+    {
+        Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows 2 moves!");
+        Debug.Log($"Automatically replacing the first move for now.");
+
+        if (runtime.equippedAttacks.Count > 0)
+        {
+            var oldAttack = runtime.equippedAttacks[0];
+            runtime.equippedAttacks[0] = newAttack;
+
+            Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
             ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
         }
-        else
-        {
-            // ⚠️ Already 2 moves → prompt player
-            PromptMoveReplace(runtime, newAttack);
-        }
     }
-}
-
-private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
-{
-    Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows 2 moves!");
-
-    // You can replace this with a real UI later.
-    // For now, we simulate with a console prompt style:
-    Debug.Log($"Choose a move to replace:");
-    for (int i = 0; i < runtime.equippedAttacks.Count; i++)
-    {
-        Debug.Log($"[{i + 1}] {runtime.equippedAttacks[i].attackName}");
-    }
-    Debug.Log($"[0] Cancel (do not learn {newAttack.attackName})");
-
-    // TEMPORARY: auto-replace the first move for testing (no input system yet)
-    int chosenIndex = 1; // You’ll replace this with player input later
-
-    if (chosenIndex == 0)
-    {
-        Debug.Log($"❌ {runtime.baseData.characterName} decided not to learn {newAttack.attackName}.");
-        return;
-    }
-
-    int indexToReplace = chosenIndex - 1;
-
-    if (indexToReplace >= 0 && indexToReplace < runtime.equippedAttacks.Count)
-    {
-        var oldAttack = runtime.equippedAttacks[indexToReplace];
-        runtime.equippedAttacks[indexToReplace] = newAttack;
-        Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
-        ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
-    }
-    else
-    {
-        Debug.Log($"❌ Invalid choice. {runtime.baseData.characterName} did not learn {newAttack.attackName}.");
-    }
-}
-
 
     private void ShowLevelUpPopup(string charName, int newLevel)
     {
         Debug.Log($"🎉 {charName} reached Level {newLevel}!");
-        // hook UI later
     }
 
     private void ShowLearnAttackPopup(string charName, string attackName)
     {
         Debug.Log($"🔥 {charName} learned a new attack: {attackName}!");
-        // hook UI later
     }
 
     public int GetXPToNextLevel(int currentLevel)
     {
         return Mathf.RoundToInt(baseXPRequired * Mathf.Pow(growthRate, currentLevel - 1));
     }
-
-    private static Dictionary<string, int> PlayerXPData = new Dictionary<string, int>();
 }
-//hii
