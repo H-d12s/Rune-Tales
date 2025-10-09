@@ -9,6 +9,7 @@ public class BattleManager : MonoBehaviour
 
     private ExperienceSystem expSystem;
     private BattleUIManager uiManager;
+    private EncounterManager encounterManager;
 
     [Header("Spawn Points")]
     public Transform[] playerSpawnPoints;
@@ -17,9 +18,9 @@ public class BattleManager : MonoBehaviour
     [Header("Prefabs")]
     public GameObject characterPrefab;
 
-    [Header("Teams")]
-    public List<CharacterData> playerTeam;
-    public List<CharacterData> enemyTeam;
+    [Header("Teams (Populated Dynamically)")]
+    public List<CharacterData> playerTeam = new List<CharacterData>();
+    public List<CharacterData> enemyTeam = new List<CharacterData>();
 
     private List<CharacterBattleController> playerControllers = new List<CharacterBattleController>();
     private List<CharacterBattleController> enemyControllers = new List<CharacterBattleController>();
@@ -32,41 +33,66 @@ public class BattleManager : MonoBehaviour
     [Header("Spawn Offset")]
     public float verticalOffset = -1.5f;
 
-    // ==========================
-    // ⚙️ INITIALIZATION
-    // ==========================
-    void Start()
+    // ==========================================================
+    // 🚀 CALLED FROM ENCOUNTER MANAGER
+    // ==========================================================
+    public void StartBattle(List<CharacterData> playerTeamData, List<CharacterData> enemyTeamData)
     {
+        Debug.Log("⚔️ Starting new battle via EncounterManager...");
+        Debug.Log("⚔️ Starting new battle via EncounterManager...");
+
+    // 🧹 Reset any previous battle coroutine and state
+        StopAllCoroutines();
+        battleActive = false;
+        chosenActions.Clear();
+        playerControllers.Clear();
+        enemyControllers.Clear();
+
+        playerTeam = playerTeamData;
+        enemyTeam = enemyTeamData;
+
         uiManager = FindFirstObjectByType<BattleUIManager>();
         expSystem = FindFirstObjectByType<ExperienceSystem>();
+        encounterManager = FindFirstObjectByType<EncounterManager>();
 
-        if (uiManager == null)
-        {
-            Debug.LogError("❌ No BattleUIManager found in scene!");
-            return;
-        }
+        if (uiManager == null) Debug.LogError("❌ No BattleUIManager found!");
+        if (expSystem == null) Debug.LogError("❌ No ExperienceSystem found!");
+        if (encounterManager == null) Debug.LogError("❌ No EncounterManager found!");
 
-        if (expSystem == null)
-        {
-            Debug.LogError("❌ No ExperienceSystem found in scene!");
-            return;
-        }
+        // Clean old spawned objects
+        ClearSpawnedCharacters();
 
-        // Spawn teams
+        // === SPAWN TEAMS ===
         SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
         SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
 
+        // === Initialize EXP System AFTER persistence is applied ===
         expSystem.Initialize(playerControllers);
-
-        Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
-        Debug.Log("--------------------------------------------------------");
 
         battleActive = true;
         StartCoroutine(BattleLoop());
+
+        Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
+    }
+
+    private void ClearSpawnedCharacters()
+    {
+        foreach (Transform t in playerSpawnPoints)
+            for (int i = t.childCount - 1; i >= 0; i--)
+                Destroy(t.GetChild(i).gameObject);
+
+        foreach (Transform t in enemySpawnPoints)
+            for (int i = t.childCount - 1; i >= 0; i--)
+                Destroy(t.GetChild(i).gameObject);
+
+        playerControllers.Clear();
+        enemyControllers.Clear();
     }
 
     private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints, List<CharacterBattleController> list, bool isPlayer)
     {
+        if (teamData == null || spawnPoints == null) return;
+
         for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
         {
             var obj = Instantiate(characterPrefab, spawnPoints[i].position + new Vector3(0, verticalOffset, 0), Quaternion.identity);
@@ -76,7 +102,13 @@ public class BattleManager : MonoBehaviour
             ctrl.isPlayer = isPlayer;
             ctrl.InitializeCharacter();
 
-            // Flip enemies visually
+            // ✅ Apply persistent runtime BEFORE battle starts
+            if (isPlayer && PersistentPlayerData.Instance != null)
+            {
+                PersistentPlayerData.Instance.ApplyToRuntime(ctrl.GetRuntimeCharacter());
+            }
+
+            // Flip enemy visuals
             if (!isPlayer)
             {
                 var scale = obj.transform.localScale;
@@ -88,9 +120,9 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    // ==========================
-    // 🔁 MAIN BATTLE LOOP
-    // ==========================
+    // ==========================================================
+    // 🌀 MAIN BATTLE LOOP
+    // ==========================================================
     private IEnumerator BattleLoop()
     {
         while (battleActive)
@@ -101,7 +133,7 @@ public class BattleManager : MonoBehaviour
             // === Enemy Turn ===
             EnemyCommandPhase();
 
-            // === Resolve All Actions by Speed ===
+            // === Resolve All Actions ===
             yield return StartCoroutine(ResolveActions());
 
             // === Check Victory/Defeat ===
@@ -114,6 +146,8 @@ public class BattleManager : MonoBehaviour
             if (AreAllDead(playerControllers))
             {
                 Debug.Log("💀 All players fainted! You lost...");
+                if (PersistentPlayerData.Instance != null)
+                    PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
                 battleActive = false;
                 yield break;
             }
@@ -123,73 +157,61 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    // ==========================
+    // ==========================================================
     // 🧠 PLAYER COMMAND PHASE
-    // ==========================
-    // ==========================
-// 🧠 PLAYER COMMAND PHASE (Fixed Version)
-// ==========================
-private IEnumerator PlayerCommandPhase()
-{
-    chosenActions.Clear();
-    playerChoiceIndex = 0;
-
-    while (playerChoiceIndex < playerControllers.Count)
+    // ==========================================================
+    private IEnumerator PlayerCommandPhase()
     {
-        var currentPlayer = playerControllers[playerChoiceIndex];
-        var runtime = currentPlayer.GetRuntimeCharacter();
+        chosenActions.Clear();
+        playerChoiceIndex = 0;
 
-        if (!runtime.IsAlive)
+        while (playerChoiceIndex < playerControllers.Count)
         {
-            playerChoiceIndex++;
-            continue;
-        }
+            var currentPlayer = playerControllers[playerChoiceIndex];
+            var runtime = currentPlayer.GetRuntimeCharacter();
 
-        bool actionChosen = false;
-        AttackData chosenAttack = null;
-        CharacterBattleController chosenTarget = null;
-
-        // Tell UI which player is choosing
-        uiManager.SetPlayerController(currentPlayer);
-        uiManager.BeginPlayerChoice((attack, target) =>
-        {
-            chosenAttack = attack;
-            chosenTarget = target;
-            actionChosen = true;
-        });
-
-        // Wait until the player picks an attack + target
-        yield return new WaitUntil(() => actionChosen);
-
-        // ✅ Guarantee valid action even if something failed
-        if (chosenAttack == null || chosenTarget == null)
-        {
-            Debug.LogWarning($"⚠️ No action chosen for {currentPlayer.characterData.characterName}, defaulting to first available attack.");
-
-            var fallbackAttack = runtime.equippedAttacks.Count > 0 ? runtime.equippedAttacks[0] : null;
-            var fallbackTarget = enemyControllers.Find(e => e.GetRuntimeCharacter().IsAlive);
-
-            if (fallbackAttack != null && fallbackTarget != null)
+            if (!runtime.IsAlive)
             {
-                chosenActions[currentPlayer] = (fallbackAttack, fallbackTarget);
+                playerChoiceIndex++;
+                continue;
             }
-        }
-        else
-        {
-            chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
+
+            bool actionChosen = false;
+            AttackData chosenAttack = null;
+            CharacterBattleController chosenTarget = null;
+
+            uiManager.SetPlayerController(currentPlayer);
+            uiManager.BeginPlayerChoice((attack, target) =>
+            {
+                chosenAttack = attack;
+                chosenTarget = target;
+                actionChosen = true;
+            });
+
+            yield return new WaitUntil(() => actionChosen);
+
+            if (chosenAttack == null || chosenTarget == null)
+            {
+                var fallbackAttack = runtime.equippedAttacks.Count > 0 ? runtime.equippedAttacks[0] : null;
+                var fallbackTarget = enemyControllers.Find(e => e.GetRuntimeCharacter().IsAlive);
+
+                if (fallbackAttack != null && fallbackTarget != null)
+                    chosenActions[currentPlayer] = (fallbackAttack, fallbackTarget);
+            }
+            else
+            {
+                chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
+            }
+
+            playerChoiceIndex++;
         }
 
-        playerChoiceIndex++;
+        yield return new WaitForSeconds(0.2f);
     }
 
-    // Small delay to ensure all UI input is finalized before proceeding
-    yield return new WaitForSeconds(0.2f);
-}
-
-
-    // ==========================
-    // 🤖 ENEMY AI PHASE
-    // ==========================
+    // ==========================================================
+    // 🤖 ENEMY COMMAND PHASE
+    // ==========================================================
     private void EnemyCommandPhase()
     {
         foreach (var enemy in enemyControllers)
@@ -201,7 +223,6 @@ private IEnumerator PlayerCommandPhase()
             if (attacks.Count == 0) continue;
 
             var attack = attacks[Random.Range(0, attacks.Count)];
-
             var targets = playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive);
             if (targets.Count == 0) continue;
 
@@ -210,9 +231,9 @@ private IEnumerator PlayerCommandPhase()
         }
     }
 
-    // ==========================
+    // ==========================================================
     // ⚔️ ACTION RESOLUTION
-    // ==========================
+    // ==========================================================
     private IEnumerator ResolveActions()
     {
         turnOrder = new List<CharacterBattleController>(chosenActions.Keys);
@@ -231,9 +252,9 @@ private IEnumerator PlayerCommandPhase()
         }
     }
 
-    // ==========================
+    // ==========================================================
     // 💥 ATTACK EXECUTION
-    // ==========================
+    // ==========================================================
     public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
     {
         if (attacker == null || target == null || attack == null) return;
@@ -243,12 +264,10 @@ private IEnumerator PlayerCommandPhase()
         var attackerRuntime = attacker.GetRuntimeCharacter();
         var targetRuntime = target.GetRuntimeCharacter();
 
-        // === Dice Roll ===
         int dice = Random.Range(1, 11);
         float multiplier = 1f;
         string hitType = "";
 
-        // === Miss, Crit, Weak, Normal ===
         if (dice == 1)
         {
             Debug.Log($"⚔️ {attackerName} used {attack.attackName}! 🎲 Die: 1 ❌ Missed!");
@@ -270,34 +289,29 @@ private IEnumerator PlayerCommandPhase()
             hitType = "⚔️ Normal Hit!";
         }
 
-        // === Damage ===
         int baseDamage = Mathf.Max(1, attack.power + attackerRuntime.Attack - targetRuntime.Defense / 2);
         int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
 
         targetRuntime.TakeDamage(finalDamage);
 
-        // 🧾 Simple, compact log
         Debug.Log($"⚔️ {attackerName} used {attack.attackName}! 🎲 {dice} → {hitType}");
         Debug.Log($"💥 {targetName} took {finalDamage} damage (HP: {targetRuntime.currentHP}/{targetRuntime.runtimeHP})");
 
-        // === Shake + Highlight ===
-        var selector = target.GetComponent<EnemySelector>();
-        if (selector != null) selector.Highlight(false);
         StartCoroutine(HitShake(target.transform));
 
-        // === Death ===
         if (!targetRuntime.IsAlive)
         {
             Debug.Log($"💀 {targetName} fainted!");
             if (attacker.isPlayer && expSystem != null)
                 expSystem.GrantXP(target.characterData);
+
             StartCoroutine(FadeAndRemove(target));
         }
     }
 
-    // ==========================
+    // ==========================================================
     // ✨ HELPERS
-    // ==========================
+    // ==========================================================
     private IEnumerator FadeAndRemove(CharacterBattleController target)
     {
         var sr = target.GetComponent<SpriteRenderer>();
@@ -356,11 +370,15 @@ private IEnumerator PlayerCommandPhase()
             StartCoroutine(FadeAndRemove(enemy));
         }
 
+        // ✅ Save player data BEFORE ending encounter
+        if (PersistentPlayerData.Instance != null)
+            PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
+
         yield return new WaitForSeconds(1.2f);
         Debug.Log("🎉 Battle complete! XP distributed successfully!");
         Debug.Log("--------------------------------------------------------");
-    }
 
+        if (encounterManager != null)
+            encounterManager.EndEncounter();
+    }
 }
-//hi
-//hi

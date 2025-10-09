@@ -18,25 +18,41 @@ public class CharacterBattleController : MonoBehaviour
             InitializeCharacter();
     }
 
-    public void InitializeCharacter()
+   public void InitializeCharacter()
+{
+    if (characterData == null)
     {
-        if (characterData == null)
-        {
-            Debug.LogError($"❌ No CharacterData assigned to {name}!");
-            return;
-        }
-
-        if (spriteRenderer == null)
-            spriteRenderer = GetComponent<SpriteRenderer>();
-
-        runtimeCharacter = new CharacterRuntime(characterData, 1);
-        originalColor = spriteRenderer.color;
-
-        if (characterData.portrait != null)
-            spriteRenderer.sprite = characterData.portrait;
-
-        Debug.Log($"✅ {(isPlayer ? "Player" : "Enemy")} {characterData.characterName} initialized ({runtimeCharacter.currentHP} HP)");
+        Debug.LogError($"❌ No CharacterData assigned to {name}!");
+        return;
     }
+
+    if (spriteRenderer == null)
+        spriteRenderer = GetComponent<SpriteRenderer>();
+
+    // ✅ Only create a new runtime if none exists
+    if (runtimeCharacter == null)
+    {
+        // Default level is 1 — will be overridden by persistence later if needed
+        runtimeCharacter = new CharacterRuntime(characterData, 1);
+    }
+    else
+    {
+        // Reuse existing runtime stats between encounters
+        Debug.Log($"♻️ Reusing existing runtime for {characterData.characterName}");
+    }
+
+    originalColor = spriteRenderer.color;
+
+    if (characterData.portrait != null)
+        spriteRenderer.sprite = characterData.portrait;
+
+    // ✅ Don’t overwrite current HP if persistence will restore it
+    if (runtimeCharacter.currentHP <= 0)
+        runtimeCharacter.currentHP = runtimeCharacter.runtimeHP;
+
+    Debug.Log($"✅ {(isPlayer ? "Player" : "Enemy")} {characterData.characterName} initialized ({runtimeCharacter.currentHP}/{runtimeCharacter.runtimeHP} HP)");
+}
+
 
     public CharacterRuntime GetRuntimeCharacter() => runtimeCharacter;
 

@@ -1,6 +1,10 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+/// <summary>
+/// Handles XP gain, level-ups, and stat growth for each character class.
+/// Works with PersistentPlayerData to ensure progress carries across encounters.
+/// </summary>
 public class ExperienceSystem : MonoBehaviour
 {
     [Header("XP Curve Settings")]
@@ -18,6 +22,20 @@ public class ExperienceSystem : MonoBehaviour
     {
         playerControllers = playerTeam;
         totalXPThisBattle = 0;
+
+        // 🧠 Restore XP + Level data from persistent save
+        if (PersistentPlayerData.Instance != null)
+{
+    foreach (var controller in playerControllers)
+    {
+        var runtime = controller.GetRuntimeCharacter();
+
+        // Do NOT re-apply persistent data here; BattleManager already did.
+        if (PlayerXPData.ContainsKey(runtime.baseData.characterName))
+            Debug.Log($"♻️ Restored XP for {runtime.baseData.characterName}: {PlayerXPData[runtime.baseData.characterName]} XP");
+    }
+}
+
     }
 
     public void GrantXP(CharacterData enemyData)
@@ -37,6 +55,10 @@ public class ExperienceSystem : MonoBehaviour
 
             AddXP(controller.GetRuntimeCharacter(), xpReward);
         }
+
+        // ✅ Save after XP grant to persist progress
+        if (PersistentPlayerData.Instance != null)
+            PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
     }
 
     private void AddXP(CharacterRuntime runtime, int amount)
@@ -63,11 +85,14 @@ public class ExperienceSystem : MonoBehaviour
             Debug.Log($"⬆️ {runtime.baseData.characterName} leveled up! (Now Level {runtime.currentLevel})");
             ShowLevelUpPopup(runtime.baseData.characterName, runtime.currentLevel);
 
-            // ✅ Check for new attacks after level up
             LearnNewAttacks(runtime);
         }
 
         PlayerXPData[runtime.baseData.characterName] = currentXP;
+
+        // 🧩 Update persistent data immediately
+        if (PersistentPlayerData.Instance != null)
+            PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
     }
 
     private void ApplyStatGrowth(CharacterRuntime runtime)
@@ -107,7 +132,6 @@ public class ExperienceSystem : MonoBehaviour
         Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
     }
 
-    // ✅ Restored Pokémon-style move learning
     private void LearnNewAttacks(CharacterRuntime runtime)
     {
         var availableAttacks = runtime.baseData.GetAvailableAttacks(runtime.currentLevel);
@@ -115,7 +139,7 @@ public class ExperienceSystem : MonoBehaviour
         foreach (var newAttack in availableAttacks)
         {
             if (runtime.equippedAttacks.Contains(newAttack))
-                continue; // already learned before
+                continue;
 
             if (runtime.equippedAttacks.Count < 2)
             {
@@ -129,11 +153,43 @@ public class ExperienceSystem : MonoBehaviour
         }
     }
 
-    private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
-    {
-        Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows 2 moves!");
-        Debug.Log($"Automatically replacing the first move for now.");
+  private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
+{
+    Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows {runtime.equippedAttacks.Count} moves!");
 
+    // Collect the names of all current moves
+    var moveNames = new List<string>();
+    foreach (var atk in runtime.equippedAttacks)
+        moveNames.Add(atk.attackName);
+
+    // Show prompt via MoveReplaceUIManager
+    if (MoveReplaceUIManager.Instance != null)
+    {
+        MoveReplaceUIManager.Instance.ShowReplacePrompt(
+            moveNames,
+            newAttack.attackName,
+            (replaceIndex) =>
+            {
+                // ✅ Replace the chosen move
+                var oldAttack = runtime.equippedAttacks[replaceIndex];
+                runtime.equippedAttacks[replaceIndex] = newAttack;
+
+                Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
+                ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+
+                // 🧩 Persist immediately
+                if (PersistentPlayerData.Instance != null)
+                    PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
+            },
+            () =>
+            {
+                Debug.Log($"🕊️ {runtime.baseData.characterName} decided not to learn {newAttack.attackName}.");
+            });
+    }
+    else
+    {
+        // Fallback: if no UI manager is available, auto-replace the first move
+        Debug.LogWarning("⚠️ MoveReplaceUIManager not found, auto-replacing first move instead.");
         if (runtime.equippedAttacks.Count > 0)
         {
             var oldAttack = runtime.equippedAttacks[0];
@@ -141,8 +197,14 @@ public class ExperienceSystem : MonoBehaviour
 
             Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
             ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+
+            if (PersistentPlayerData.Instance != null)
+                PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
         }
     }
+}
+
+
 
     private void ShowLevelUpPopup(string charName, int newLevel)
     {

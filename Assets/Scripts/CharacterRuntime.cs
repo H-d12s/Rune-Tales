@@ -20,6 +20,9 @@ public class CharacterRuntime
 
     public List<AttackData> equippedAttacks = new List<AttackData>();
 
+    // Convenience alias (some older code used 'characterData')
+    public CharacterData characterData => baseData;
+
     // --- Stat Accessors ---
     public int MaxHP => runtimeHP;
     public int Attack => runtimeAttack;
@@ -72,8 +75,7 @@ public class CharacterRuntime
     {
         damage = Mathf.Max(1, damage);
         currentHP = Mathf.Max(0, currentHP - damage);
-        // ❌ Removed redundant Debug.Log here to prevent double messages
-        // Logging is handled inside BattleManager.PerformAttack()
+        // Logging of the attack/damage is handled by BattleManager.PerformAttack() per your request
 
         if (currentHP <= 0)
             Debug.Log($"☠️ {baseData.characterName} has been defeated!");

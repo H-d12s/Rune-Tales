@@ -18,4 +18,3 @@ MonoBehaviour:
   power: 20
   maxUsage: 25
   chargeValue: 5
-  currentUsage: 0
