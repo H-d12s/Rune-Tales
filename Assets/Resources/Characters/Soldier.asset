@@ -20,9 +20,9 @@ MonoBehaviour:
   baseDefense: 20
   baseSpeed: 12
   learnableAttacks:
-  - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
+  - attack: {fileID: 11400000, guid: 0841426eff9f21644a72bf51d49e4f31, type: 2}
     levelToLearn: 1
-  - attack: {fileID: 11400000, guid: 8647e6f3bcec5e34788ada1c444b263f, type: 2}
+  - attack: {fileID: 11400000, guid: b091095c2598b0e4d91e7af2fc38bca9, type: 2}
     levelToLearn: 1
   - attack: {fileID: 11400000, guid: 0b5f144d4663b884d8cdcadd13babf7b, type: 2}
     levelToLearn: 2

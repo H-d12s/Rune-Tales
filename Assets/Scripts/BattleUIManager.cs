@@ -5,6 +5,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+public enum TargetType
+{
+    Enemy,
+    Ally
+}
+
 public class BattleUIManager : MonoBehaviour
 {
     [Header("UI Panels")]
@@ -25,13 +31,14 @@ public class BattleUIManager : MonoBehaviour
 
     private bool isSelectingTarget = false;
     private AttackData selectedAttack;
+    private TargetType currentTargetType;
 
     // Callback from BattleManager
     private Action<AttackData, CharacterBattleController> onAttackConfirmed;
 
-    // =====================================================================
-    // 🏁 INITIALIZATION
-    // =====================================================================
+    // ===========================
+    // Initialization
+    // ===========================
     void Start()
     {
         StartCoroutine(InitializeUI());
@@ -43,21 +50,16 @@ public class BattleUIManager : MonoBehaviour
 
         battleManager = FindFirstObjectByType<BattleManager>();
 
-        // ✅ Panels
         if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
-        if (mainActionPanel) mainActionPanel.SetActive(true); // visible at start
+        if (mainActionPanel) mainActionPanel.SetActive(true);
 
-        // ✅ Buttons
-        if (attackButton)
-            attackButton.onClick.AddListener(OnAttackPressed);
-
-        if (retreatButton)
-            retreatButton.onClick.AddListener(OnRetreatPressed);
+        if (attackButton) attackButton.onClick.AddListener(OnAttackPressed);
+        if (retreatButton) retreatButton.onClick.AddListener(OnRetreatPressed);
     }
 
-    // =====================================================================
-    // 🎮 PLAYER COMMAND PHASE
-    // =====================================================================
+    // ===========================
+    // Player Command Phase
+    // ===========================
     public void BeginPlayerChoice(Action<AttackData, CharacterBattleController> callback)
     {
         onAttackConfirmed = callback;
@@ -71,9 +73,6 @@ public class BattleUIManager : MonoBehaviour
         UpdateAttackButtons();
     }
 
-    // =====================================================================
-    // ⚔️ ATTACK BUTTON HANDLING
-    // =====================================================================
     private void OnAttackPressed()
     {
         if (mainActionPanel) mainActionPanel.SetActive(false);
@@ -120,41 +119,57 @@ public class BattleUIManager : MonoBehaviour
 
         selectedAttack = attack;
         isSelectingTarget = true;
-        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a target...");
+
+        // Decide target type dynamically
+        currentTargetType = attack.healsTarget ? TargetType.Ally : TargetType.Enemy;
+
+        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a {currentTargetType} target...");
     }
 
-    // =====================================================================
-    // 🎯 TARGET SELECTION
-    // =====================================================================
+    // ===========================
+    // Target Selection
+    // ===========================
     public void SetTarget(CharacterBattleController target)
     {
-        if (!isSelectingTarget || target.isPlayer)
+        if (!isSelectingTarget || target == null) return;
+
+        // Validate target type
+        if ((currentTargetType == TargetType.Enemy && target.isPlayer) ||
+            (currentTargetType == TargetType.Ally && !target.isPlayer))
             return;
 
         currentTarget = target;
         isSelectingTarget = false;
 
         Debug.Log($"🎯 Target selected: {target.characterData.characterName}");
-        Debug.Log($"⚔️ {playerController.characterData.characterName} attacks {target.characterData.characterName}!");
 
-        // ✅ Confirm to BattleManager
+        // Confirm to BattleManager
         if (selectedAttack != null)
             onAttackConfirmed?.Invoke(selectedAttack, currentTarget);
         else
             Debug.LogWarning("⚠️ No attack selected before choosing target!");
 
-        // Reset flicker/highlight
-        var selector = target.GetComponent<EnemySelector>();
-        if (selector != null)
-            selector.Highlight(false);
+        // Reset highlight
+        var selector = target.GetComponent<TargetSelector>();
+        if (selector != null) selector.Highlight(false);
 
         HideAll();
         selectedAttack = null;
     }
 
-    // =====================================================================
-    // 🧩 PANEL CONTROL
-    // =====================================================================
+    public bool CanSelectTargetType(TargetType type)
+    {
+        if (!isSelectingTarget || selectedAttack == null) return false;
+
+        if (type == TargetType.Ally)
+            return selectedAttack.healsTarget;
+        else
+            return !selectedAttack.healsTarget;
+    }
+
+    // ===========================
+    // Panel Control
+    // ===========================
     public void HideAll()
     {
         if (mainActionPanel) mainActionPanel.SetActive(false);
@@ -175,8 +190,8 @@ public class BattleUIManager : MonoBehaviour
         selectedAttack = null;
     }
 
-    // =====================================================================
-    // ⚙️ ACCESSORS
-    // =====================================================================
+    // ===========================
+    // Accessors
+    // ===========================
     public bool IsSelectingTarget() => isSelectingTarget;
 }
