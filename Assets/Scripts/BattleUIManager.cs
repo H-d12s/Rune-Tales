@@ -5,12 +5,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-public enum TargetType
-{
-    Enemy,
-    Ally
-}
-
 public class BattleUIManager : MonoBehaviour
 {
     [Header("UI Panels")]
@@ -31,14 +25,10 @@ public class BattleUIManager : MonoBehaviour
 
     private bool isSelectingTarget = false;
     private AttackData selectedAttack;
-    private TargetType currentTargetType;
 
     // Callback from BattleManager
     private Action<AttackData, CharacterBattleController> onAttackConfirmed;
 
-    // ===========================
-    // Initialization
-    // ===========================
     void Start()
     {
         StartCoroutine(InitializeUI());
@@ -47,7 +37,6 @@ public class BattleUIManager : MonoBehaviour
     private IEnumerator InitializeUI()
     {
         yield return null;
-
         battleManager = FindFirstObjectByType<BattleManager>();
 
         if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
@@ -57,9 +46,6 @@ public class BattleUIManager : MonoBehaviour
         if (retreatButton) retreatButton.onClick.AddListener(OnRetreatPressed);
     }
 
-    // ===========================
-    // Player Command Phase
-    // ===========================
     public void BeginPlayerChoice(Action<AttackData, CharacterBattleController> callback)
     {
         onAttackConfirmed = callback;
@@ -109,45 +95,75 @@ public class BattleUIManager : MonoBehaviour
         }
     }
 
-    private void OnAttackChosen(AttackData attack)
+  private void OnAttackChosen(AttackData attack)
+{
+    if (attack == null) return;
+
+    selectedAttack = attack;
+    isSelectingTarget = false; // default
+
+    // --- Auto-apply to self ---
+    if (attack.affectsSelf && !attack.manualBuffTargetSelection)
     {
-        if (attack == null)
+        if (!attack.isAoE)
         {
-            Debug.LogWarning("⚠️ Attack missing!");
-            return;
+            // Single target self
+            Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on self automatically!");
+            onAttackConfirmed?.Invoke(selectedAttack, playerController);
+        }
+        else
+        {
+            // AoE self/allies
+            Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on all allies automatically!");
+            var allies = FindObjectsOfType<CharacterBattleController>();
+            foreach (var ally in allies)
+            {
+                if (ally.isPlayer && ally.GetRuntimeCharacter().IsAlive)
+                {
+                    onAttackConfirmed?.Invoke(selectedAttack, ally);
+                }
+            }
         }
 
-        selectedAttack = attack;
-        isSelectingTarget = true;
-
-        // Decide target type dynamically
-        currentTargetType = attack.healsTarget ? TargetType.Ally : TargetType.Enemy;
-
-        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a {currentTargetType} target...");
+        selectedAttack = null;
+        return;
     }
 
-    // ===========================
+    // Otherwise, wait for player to select a target
+    isSelectingTarget = true;
+    if (attack.healsTarget || attack.manualBuffTargetSelection)
+        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an ally target...");
+    else
+        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an enemy target...");
+}
+
+
     // Target Selection
-    // ===========================
     public void SetTarget(CharacterBattleController target)
     {
-        if (!isSelectingTarget || target == null) return;
+        if (!isSelectingTarget || target == null || selectedAttack == null) return;
 
-        // Validate target type
-        if ((currentTargetType == TargetType.Enemy && target.isPlayer) ||
-            (currentTargetType == TargetType.Ally && !target.isPlayer))
-            return;
+        bool isValid = false;
+
+        if (selectedAttack.healsTarget || selectedAttack.manualBuffTargetSelection)
+        {
+            // Target must be an ally
+            if (target.isPlayer) isValid = true;
+        }
+        else
+        {
+            // Target must be an enemy
+            if (!target.isPlayer) isValid = true;
+        }
+
+        if (!isValid) return;
 
         currentTarget = target;
         isSelectingTarget = false;
 
         Debug.Log($"🎯 Target selected: {target.characterData.characterName}");
 
-        // Confirm to BattleManager
-        if (selectedAttack != null)
-            onAttackConfirmed?.Invoke(selectedAttack, currentTarget);
-        else
-            Debug.LogWarning("⚠️ No attack selected before choosing target!");
+        onAttackConfirmed?.Invoke(selectedAttack, currentTarget);
 
         // Reset highlight
         var selector = target.GetComponent<TargetSelector>();
@@ -157,19 +173,7 @@ public class BattleUIManager : MonoBehaviour
         selectedAttack = null;
     }
 
-    public bool CanSelectTargetType(TargetType type)
-    {
-        if (!isSelectingTarget || selectedAttack == null) return false;
-
-        if (type == TargetType.Ally)
-            return selectedAttack.healsTarget;
-        else
-            return !selectedAttack.healsTarget;
-    }
-
-    // ===========================
     // Panel Control
-    // ===========================
     public void HideAll()
     {
         if (mainActionPanel) mainActionPanel.SetActive(false);
@@ -179,6 +183,11 @@ public class BattleUIManager : MonoBehaviour
         currentTarget = null;
         selectedAttack = null;
     }
+
+    public AttackData SelectedAttack()
+{
+    return selectedAttack;
+}
 
     public void ShowMainActions()
     {
@@ -190,8 +199,6 @@ public class BattleUIManager : MonoBehaviour
         selectedAttack = null;
     }
 
-    // ===========================
     // Accessors
-    // ===========================
     public bool IsSelectingTarget() => isSelectingTarget;
 }

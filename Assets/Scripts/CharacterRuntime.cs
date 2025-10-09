@@ -149,6 +149,12 @@ public class CharacterRuntime
         nextDiceMax = max;
     }
 
+    public void ResetNextDiceRange()
+    {
+    nextDiceMin = 0;
+    nextDiceMax = 0;
+    }
+
     public void SetNextAttackMultiplier(float multiplier)
     {
         nextAttackMultiplier = multiplier;

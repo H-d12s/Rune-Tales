@@ -13,15 +13,14 @@ public class TargetSelector : MonoBehaviour
 
     private static TargetSelector currentlySelected; // Only one highlighted at a time
 
-    public TargetType targetType = TargetType.Enemy; // Will be set dynamically
-
     void Awake()
     {
         controller = GetComponent<CharacterBattleController>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         originalPosition = transform.localPosition;
 
-        if (spriteRenderer != null) originalColor = spriteRenderer.color;
+        if (spriteRenderer != null)
+            originalColor = spriteRenderer.color;
     }
 
     void Start()
@@ -34,20 +33,33 @@ public class TargetSelector : MonoBehaviour
     void OnMouseDown()
     {
         if (uiManager == null || controller == null) return;
-
         if (!uiManager.IsSelectingTarget()) return;
 
-        // Dynamically set targetType based on character
-        targetType = controller.isPlayer ? TargetType.Ally : TargetType.Enemy;
+        // Determine if this target is valid
+        bool isValid = false;
 
-        if (!uiManager.CanSelectTargetType(targetType)) return;
+        // Heal moves or manual buff selection => target must be an ally
+        if ((uiManager.SelectedAttack()?.healsTarget ?? false) || 
+            (uiManager.SelectedAttack()?.manualBuffTargetSelection ?? false))
+        {
+            if (controller.isPlayer) isValid = true;
+        }
+        else
+        {
+            // Normal attacks => target must be an enemy
+            if (!controller.isPlayer) isValid = true;
+        }
 
+        if (!isValid) return;
+
+        // Handle highlight
         if (currentlySelected != null && currentlySelected != this)
             currentlySelected.Highlight(false);
 
         currentlySelected = this;
-
         Highlight(true);
+
+        // Tell UIManager which target was selected
         uiManager.SetTarget(controller);
     }
 
@@ -66,6 +78,7 @@ public class TargetSelector : MonoBehaviour
             flashRoutine = null;
             spriteRenderer.color = originalColor;
             transform.localPosition = originalPosition;
+
             if (currentlySelected == this) currentlySelected = null;
         }
     }
@@ -73,9 +86,9 @@ public class TargetSelector : MonoBehaviour
     private IEnumerator SmoothFlash()
     {
         float flashTime = 0f;
-        Color targetColor = targetType == TargetType.Enemy
-            ? new Color(1f, 0.3f, 0.3f)  // softer red
-            : new Color(0.3f, 1f, 0.3f); // green for allies
+        Color targetColor = controller.isPlayer
+            ? new Color(0.3f, 1f, 0.3f)  // green for allies
+            : new Color(1f, 0.3f, 0.3f); // red for enemies
 
         while (true)
         {
@@ -83,7 +96,7 @@ public class TargetSelector : MonoBehaviour
             float pulse = (Mathf.Sin(flashTime) + 1f) * 0.25f; // lower intensity
             spriteRenderer.color = Color.Lerp(originalColor, targetColor, pulse);
 
-            // horizontal shake
+            // Horizontal shake
             float shakeAmount = 0.05f;
             transform.localPosition = originalPosition + new Vector3(Mathf.Sin(flashTime * 2f) * shakeAmount, 0, 0);
 

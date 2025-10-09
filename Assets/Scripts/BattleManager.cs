@@ -292,37 +292,67 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
         return;
     }
 
-    // === Non-Damage / Setup Moves ===
+    // === Non-Damage / Setup Moves / Buffs ===
     if (attack.isNonDamageMove)
     {
-        if (attack.modifiesNextDice) runtime.SetNextDiceRange(attack.nextDiceMin, attack.nextDiceMax);
-        if (attack.modifiesNextAttack) runtime.SetNextAttackMultiplier(attack.nextAttackMultiplier);
+        // Setup moves
+        if (attack.modifiesNextDice)
+            runtime.SetNextDiceRange(attack.nextDiceMin, attack.nextDiceMax);
 
-        var buffTarget = attack.affectsSelf ? runtime : target.GetRuntimeCharacter();
+        if (attack.modifiesNextAttack)
+            runtime.SetNextAttackMultiplier(attack.nextAttackMultiplier);
 
-        if (attack.buffAttack) buffTarget.ModifyAttack(attack.buffAttackAmount);
-        if (attack.buffDefense) buffTarget.ModifyDefense(attack.buffDefenseAmount);
-        if (attack.buffSpeed) buffTarget.ModifySpeed(attack.buffSpeedAmount);
+        // Determine targets for buffs/debuffs
+        List<CharacterBattleController> buffTargets = new List<CharacterBattleController>();
 
-        if (attack.debuffAttack) buffTarget.ModifyAttack(-attack.debuffAttackAmount);
-        if (attack.debuffDefense) buffTarget.ModifyDefense(-attack.debuffDefenseAmount);
-        if (attack.debuffSpeed) buffTarget.ModifySpeed(-attack.debuffSpeedAmount);
+        if (attack.isAoE)
+        {
+            // AoE buffs/debuffs
+            buffTargets.AddRange(playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive));
+        }
+        else if (attack.manualBuffTargetSelection)
+        {
+            // Manual target selection: use the clicked target
+            buffTargets.Add(target);
+        }
+        else if (attack.affectsSelf)
+        {
+            // Auto-buff self
+            buffTargets.Add(attacker);
+        }
+        else
+        {
+            // Default: single target (like Fortify / Heal)
+            buffTargets.Add(target);
+        }
 
-        if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
-            buffTarget.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+        // Apply buffs/debuffs
+        foreach (var buff in buffTargets)
+        {
+            var buffRuntime = buff.GetRuntimeCharacter();
 
-        Debug.Log($"🛠️ {attacker.characterData.characterName} used non-damage move {attack.attackName}");
+            if (attack.buffAttack) buffRuntime.ModifyAttack(attack.buffAttackAmount);
+            if (attack.buffDefense) buffRuntime.ModifyDefense(attack.buffDefenseAmount);
+            if (attack.buffSpeed) buffRuntime.ModifySpeed(attack.buffSpeedAmount);
+
+            if (attack.debuffAttack) buffRuntime.ModifyAttack(-attack.debuffAttackAmount);
+            if (attack.debuffDefense) buffRuntime.ModifyDefense(-attack.debuffDefenseAmount);
+            if (attack.debuffSpeed) buffRuntime.ModifySpeed(-attack.debuffSpeedAmount);
+
+            // Apply status effect if any
+            if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                buffRuntime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+        }
+
+        Debug.Log($"✨ {attacker.characterData.characterName} used {attack.attackName} on {buffTargets.Count} target(s)!");
         return;
     }
 
-    // === Determine targets (AoE or single) ===
+    // === Determine targets (AoE or single) for damage moves ===
     List<CharacterBattleController> targets = new List<CharacterBattleController>();
     if (attack.isAoE)
     {
-        if (attack.healsTarget)
-            targets.AddRange(playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive));
-        else
-            targets.AddRange(enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive));
+        targets.AddRange(enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive));
     }
     else
     {
@@ -340,7 +370,8 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
 
         int baseDamage = Mathf.Max(1, attack.power + runtime.Attack - tgt.GetRuntimeCharacter().Defense / 2);
 
-        runtime.nextDiceMin = runtime.nextDiceMax = 0;
+        if (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
+            runtime.ResetNextDiceRange();
 
         float multiplier = diceRoll >= 8 ? 1.25f : diceRoll <= 3 ? 0.75f : 1f;
 
@@ -393,27 +424,32 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
             Debug.Log($"🩸 {attacker.characterData.characterName} healed {healAmount} HP from Life Leech!");
         }
 
-        // === Buffs / Debuffs for normal attacks (self-targeting handled) ===
-        var buffTargetNormal = attack.affectsSelf ? runtime : tgt.GetRuntimeCharacter();
+        // === Optional buffs/debuffs applied to caster or self-targeting ===
+        if (attack.affectsSelf || attack.manualBuffTargetSelection)
+        {
+            // Already applied above in non-damage section
+        }
+        else
+        {
+            var buffTargetNormal = tgt.GetRuntimeCharacter();
 
-        if (attack.buffAttack) buffTargetNormal.ModifyAttack(attack.buffAttackAmount);
-        if (attack.buffDefense) buffTargetNormal.ModifyDefense(attack.buffDefenseAmount);
-        if (attack.buffSpeed) buffTargetNormal.ModifySpeed(attack.buffSpeedAmount);
+            if (attack.buffAttack) buffTargetNormal.ModifyAttack(attack.buffAttackAmount);
+            if (attack.buffDefense) buffTargetNormal.ModifyDefense(attack.buffDefenseAmount);
+            if (attack.buffSpeed) buffTargetNormal.ModifySpeed(attack.buffSpeedAmount);
 
-        if (attack.debuffAttack) buffTargetNormal.ModifyAttack(-attack.debuffAttackAmount);
-        if (attack.debuffDefense) buffTargetNormal.ModifyDefense(-attack.debuffDefenseAmount);
-        if (attack.debuffSpeed) buffTargetNormal.ModifySpeed(-attack.debuffSpeedAmount);
+            if (attack.debuffAttack) buffTargetNormal.ModifyAttack(-attack.debuffAttackAmount);
+            if (attack.debuffDefense) buffTargetNormal.ModifyDefense(-attack.debuffDefenseAmount);
+            if (attack.debuffSpeed) buffTargetNormal.ModifySpeed(-attack.debuffSpeedAmount);
 
-        // === Status Effects ===
-        if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
-            buffTargetNormal.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+            if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                buffTargetNormal.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+        }
 
         // === XP Gain ===
         if (!tgt.GetRuntimeCharacter().IsAlive && attacker.isPlayer && expSystem != null)
             expSystem.GrantXP(tgt.characterData);
     }
 }
-
 
 
 

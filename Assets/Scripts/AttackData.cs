@@ -64,6 +64,7 @@ public class AttackData : ScriptableObject
 
     [Header("Targeting")]
     public bool affectsSelf;
+    public bool manualBuffTargetSelection = false;
 
     [Header("Setup / Next Move Effects")]
     public bool modifiesNextAttack = false;   // True for skills like Assassinate
