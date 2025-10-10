@@ -101,15 +101,28 @@ public class RecruitmentManager : MonoBehaviour
         }
     }
 
-    private bool ReplaceMember(CharacterRuntime oldMember)
+ private bool ReplaceMember(CharacterRuntime oldMember)
+{
+    if (oldMember == null || recruit == null)
     {
-        Debug.Log($"👋 {oldMember.baseData.characterName} leaves the team. {recruit.baseData.characterName} joins!");
-        PersistentPlayerData.Instance.UpdateFromRuntime(recruit);
-
-        // Remove old member
-        PersistentPlayerData.Instance.RemoveCharacter(oldMember.baseData.characterName);
-        return true;
+        Debug.LogError("❌ Replacement failed: Missing old member or recruit data.");
+        return false;
     }
+
+    Debug.Log($"👋 {oldMember.baseData.characterName} leaves the team. {recruit.baseData.characterName} joins!");
+
+    // ✅ Use the proper persistent replacement function
+    PersistentPlayerData.Instance.ReplaceCharacter(oldMember.baseData.characterName, recruit);
+
+    // ✅ Immediately save updated player data (good practice)
+    var updatedTeamControllers = FindObjectsOfType<CharacterBattleController>();
+    PersistentPlayerData.Instance.SaveAllPlayers(new List<CharacterBattleController>(updatedTeamControllers));
+
+    Debug.Log($"🌟 Replacement complete: {oldMember.baseData.characterName} → {recruit.baseData.characterName}");
+
+    return true;
+}
+
 
     public void ResetRecruitment()
 {

@@ -642,19 +642,25 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    private bool ReplaceMemberByIndex(int index, CharacterRuntime newRuntime)
-    {
-        var runtimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
-        if (index < 0 || index >= runtimes.Count) return false;
+ private bool ReplaceMemberByIndex(int index, CharacterRuntime newRuntime)
+{
+    var runtimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
+    if (index < 0 || index >= runtimes.Count) return false;
 
-        var old = runtimes[index];
-        if (old == null) return false;
+    var old = runtimes[index];
+    if (old == null || newRuntime == null) return false;
 
-        Debug.Log($"🔁 Replacing {old.baseData.characterName} with {newRuntime.baseData.characterName}.");
-        PersistentPlayerData.Instance.UpdateFromRuntime(newRuntime);
-        PersistentPlayerData.Instance.RemoveCharacter(old.baseData.characterName);
-        return true;
-    }
+    Debug.Log($"🔁 Replacing {old.baseData.characterName} with {newRuntime.baseData.characterName}...");
+
+    // ✅ Use your final ReplaceCharacter from PersistentPlayerData
+    PersistentPlayerData.Instance.ReplaceCharacter(old.baseData.characterName, newRuntime);
+
+    // ✅ Save updated player data right after replacement
+    PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
+
+    Debug.Log($"✅ Replacement complete: {old.baseData.characterName} → {newRuntime.baseData.characterName}");
+    return true;
+}
 
     private IEnumerator FinishRecruitment(bool success)
     {

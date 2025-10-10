@@ -206,27 +206,57 @@ public class PersistentPlayerData : MonoBehaviour
             Debug.LogWarning($"⚠️ Tried to remove {characterName}, but not found in team data.");
     }
 
-    public void ReplaceCharacter(string oldName, CharacterRuntime newRecruit)
+ public void ReplaceCharacter(string oldName, CharacterRuntime newRecruit)
+{
+    if (string.IsNullOrEmpty(oldName) || newRecruit == null || newRecruit.baseData == null)
     {
-        if (string.IsNullOrEmpty(oldName) || newRecruit == null || newRecruit.baseData == null)
-        {
-            Debug.LogError("❌ Invalid replacement request.");
-            return;
-        }
-
-        if (!playerRecords.ContainsKey(oldName))
-        {
-            Debug.LogWarning($"⚠️ Tried to replace {oldName}, but not found. Adding recruit instead.");
-        }
-        else
-        {
-            playerRecords.Remove(oldName);
-            Debug.Log($"👋 Removed {oldName} from team.");
-        }
-
-        AddRecruitedCharacter(newRecruit);
-        Debug.Log($"🌟 {newRecruit.baseData.characterName} joined in place of {oldName}!");
+        Debug.LogError("❌ Invalid replacement request.");
+        return;
     }
+
+    // Remove old record if it exists
+    if (playerRecords.ContainsKey(oldName))
+    {
+        playerRecords.Remove(oldName);
+        Debug.Log($"👋 Removed {oldName} from team.");
+    }
+    else
+    {
+        Debug.LogWarning($"⚠️ Tried to replace {oldName}, but not found. Adding recruit instead.");
+    }
+
+    // Convert the new recruit into a proper PlayerRecord
+    var record = new PlayerRecord
+    {
+        data = newRecruit.baseData,
+        characterName = newRecruit.baseData.characterName,
+        level = newRecruit.currentLevel,
+        currentHP = Mathf.Clamp(newRecruit.currentHP, 0, newRecruit.runtimeHP),
+        maxHP = newRecruit.runtimeHP,
+        attack = newRecruit.runtimeAttack,
+        defense = newRecruit.runtimeDefense,
+        speed = newRecruit.runtimeSpeed,
+        equippedAttackNames = new List<string>()
+    };
+
+    if (newRecruit.equippedAttacks != null)
+    {
+        foreach (var atk in newRecruit.equippedAttacks)
+        {
+            if (atk != null && !string.IsNullOrEmpty(atk.attackName))
+                record.equippedAttackNames.Add(atk.attackName);
+        }
+    }
+
+    // ✅ Add new player record to dictionary
+    playerRecords[record.characterName] = record;
+    Debug.Log($"🌟 {record.characterName} joined in place of {oldName}!");
+
+    // ✅ (Optional) Save if you have such a function
+    SaveAllPlayers(new List<CharacterBattleController>());
+}
+
+
 
     public int GetPlayerCount() => playerRecords.Count;
     public List<string> GetPlayerNames() => new List<string>(playerRecords.Keys);
