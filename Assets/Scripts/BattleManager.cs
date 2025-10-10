@@ -342,23 +342,30 @@ public class BattleManager : MonoBehaviour
     // ==========================================================
     // Resolve actions ordered by speed
     // ==========================================================
-    private IEnumerator ResolveActions()
+   private IEnumerator ResolveActions()
+{
+    turnOrder = new List<CharacterBattleController>(chosenActions.Keys);
+    turnOrder.Sort((a, b) => b.GetRuntimeCharacter().Speed.CompareTo(a.GetRuntimeCharacter().Speed));
+
+    foreach (var actor in turnOrder)
     {
-        turnOrder = new List<CharacterBattleController>(chosenActions.Keys);
-        turnOrder.Sort((a, b) => b.GetRuntimeCharacter().Speed.CompareTo(a.GetRuntimeCharacter().Speed));
+        if (!actor.GetRuntimeCharacter().IsAlive) continue;
+        if (!chosenActions.ContainsKey(actor)) continue;
 
-        foreach (var actor in turnOrder)
+        var (attack, target) = chosenActions[actor];
+        if (target == null || !target.GetRuntimeCharacter().IsAlive) continue;
+
+        PerformAttack(actor, target, attack);
+
+        // WAIT here if a level-up / move-replace prompt is running
+        if (expSystem != null)
         {
-            if (!actor.GetRuntimeCharacter().IsAlive) continue;
-            if (!chosenActions.ContainsKey(actor)) continue;
-
-            var (attack, target) = chosenActions[actor];
-            if (target == null || !target.GetRuntimeCharacter().IsAlive) continue;
-
-            PerformAttack(actor, target, attack);
-            yield return new WaitForSeconds(1.5f);
+            yield return new WaitWhile(() => expSystem.IsProcessingLevelUps);
         }
+
+        yield return new WaitForSeconds(1.5f);
     }
+}
 
     // ==========================================================
     // Attack execution
@@ -485,37 +492,49 @@ public class BattleManager : MonoBehaviour
         return true;
     }
 
-    private IEnumerator HandleVictory(List<CharacterBattleController> defeatedEnemies)
+   private IEnumerator HandleVictory(List<CharacterBattleController> defeatedEnemies)
+{
+    Debug.Log("🏆 Victory! All enemies defeated!");
+    battleActive = false;
+
+    foreach (var enemy in defeatedEnemies)
     {
-        Debug.Log("🏆 Victory! All enemies defeated!");
-        battleActive = false;
+        if (enemy == null) continue;
+        var selector = enemy.GetComponent<EnemySelector>();
+        if (selector != null) selector.DisableSelection();
+        StartCoroutine(FadeAndRemove(enemy));
+    }
 
-        foreach (var enemy in defeatedEnemies)
-        {
-            if (enemy == null) continue;
-            var selector = enemy.GetComponent<EnemySelector>();
-            if (selector != null) selector.DisableSelection();
-            StartCoroutine(FadeAndRemove(enemy));
-        }
+    if (PersistentPlayerData.Instance != null)
+        PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
 
+    yield return new WaitForSeconds(1.2f);
+    Debug.Log("🎉 Battle complete! XP distributed successfully!");
+    Debug.Log("--------------------------------------------------------");
+
+    // After battle, process any pending level-up move prompts (one after another).
+    if (expSystem != null)
+    {
+        // This coroutine sets IsProcessingLevelUps while running.
+        yield return StartCoroutine(expSystem.ProcessPendingMovePrompts());
+
+        // After processing, persist any updates (moves/stats)
         if (PersistentPlayerData.Instance != null)
             PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
-
-        yield return new WaitForSeconds(1.2f);
-        Debug.Log("🎉 Battle complete! XP distributed successfully!");
-        Debug.Log("--------------------------------------------------------");
-
-        if (isRecruitmentBattle && !recruitmentComplete)
-        {
-            Debug.Log("⚠️ Recruitment battle ended (no recruit). Marking recruitment complete.");
-            recruitmentComplete = true;
-            isRecruitmentBattle = false;
-            if (uiManager != null) uiManager.SetPersuadeButtonActive(false);
-        }
-
-        if (encounterManager != null)
-            encounterManager.EndEncounter();
     }
+
+    if (isRecruitmentBattle && !recruitmentComplete)
+    {
+        Debug.Log("⚠️ Recruitment battle ended (no recruit). Marking recruitment complete.");
+        recruitmentComplete = true;
+        isRecruitmentBattle = false;
+        if (uiManager != null) uiManager.SetPersuadeButtonActive(false);
+    }
+
+    if (encounterManager != null)
+        encounterManager.EndEncounter();
+}
+
 
     // ==========================================================
     // Persuasion (recruit) processing

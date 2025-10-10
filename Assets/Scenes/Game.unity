@@ -426,6 +426,7 @@ MonoBehaviour:
   startingTeam:
   - {fileID: 11400000, guid: 987080841091a6f419b6c8fea4f85fb9, type: 2}
   - {fileID: 11400000, guid: 00c0b45b41250e94283698f0eeefecdb, type: 2}
+  - {fileID: 11400000, guid: c0193f4ef31dc444d992433b57dcaaa9, type: 2}
   recruitableCharacters:
   - {fileID: 11400000, guid: ac4c9ba18b352154292fb355f6f7e2b3, type: 2}
   encountersBeforeRecruitment: 10
@@ -1605,7 +1606,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dfc1e5a229ed84b4a9b311d8d9ffbb93, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  baseXPRequired: 40
+  baseXPRequired: 60
   growthRate: 1.2
   maxLevel: 30
   totalXPThisBattle: 0
