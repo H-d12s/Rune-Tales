@@ -55,6 +55,8 @@ public class BattleManager : MonoBehaviour
     {
         Debug.Log("⚔️ Starting new battle via EncounterManager...");
 
+        CleanupOldInstances();
+
         // Reset
         StopAllCoroutines();
         battleActive = false;
@@ -412,33 +414,52 @@ public class BattleManager : MonoBehaviour
                 expSystem.GrantXP(target.characterData);
 
             StartCoroutine(FadeAndRemove(target));
+
+            if (isRecruitmentBattle && recruitTarget == target)
+{
+    Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
+    if (FindObjectOfType<RecruitmentManager>() != null)
+        FindObjectOfType<RecruitmentManager>().ResetRecruitment();
+    recruitTarget = null;
+    isRecruitmentBattle = false;
+    recruitmentComplete = true;
+}
+
+            
         }
     }
 
     // ==========================================================
     // Helpers (Fade, Shake etc.)
     // ==========================================================
-    private IEnumerator FadeAndRemove(CharacterBattleController target)
+   private IEnumerator FadeAndRemove(CharacterBattleController target)
+{
+    if (target == null) yield break;
+
+    var sr = target.GetComponent<SpriteRenderer>();
+    var selector = target.GetComponent<EnemySelector>();
+    if (selector != null) selector.Highlight(false);
+
+    if (sr != null)
     {
-        if (target == null) yield break;
-
-        var sr = target.GetComponent<SpriteRenderer>();
-        var selector = target.GetComponent<EnemySelector>();
-        if (selector != null) selector.Highlight(false);
-
-        if (sr != null)
+        Color c = sr.color;
+        for (float t = 0; t < 1f; t += Time.deltaTime)
         {
-            Color c = sr.color;
-            for (float t = 0; t < 1f; t += Time.deltaTime)
-            {
-                c.a = Mathf.Lerp(1f, 0f, t);
-                sr.color = c;
-                yield return null;
-            }
-        }
+            // check each frame that the renderer still exists
+            if (sr == null || target == null)
+                yield break;
 
-        Destroy(target.gameObject);
+            c.a = Mathf.Lerp(1f, 0f, t);
+            sr.color = c;
+            yield return null;
+        }
     }
+
+    // Safety check before destroying
+    if (target != null)
+        Destroy(target.gameObject);
+}
+
 
     private IEnumerator HitShake(Transform target)
     {
@@ -663,6 +684,72 @@ public class BattleManager : MonoBehaviour
             enemyControllers.Remove(recruitTarget);
         }
     }
+
+    /// <summary>
+/// Cleans up any leftover character prefabs or clones from the previous battle.
+/// </summary>
+private void CleanupOldInstances()
+{
+    Debug.Log("🧹 Cleaning up old BattleManager instances and spawned characters...");
+
+    // 1️⃣ Clean characters left under spawn points
+    ClearSpawnedCharacters();
+
+    // 2️⃣ Destroy all CharacterBattleControllers in scene that aren’t part of this new battle
+    var oldControllers = FindObjectsOfType<CharacterBattleController>();
+    foreach (var c in oldControllers)
+    {
+        // skip ones that are already destroyed or null
+        if (c == null) continue;
+
+        // double-check if it's a leftover (not parented to any spawn point)
+        bool isUnderPlayerSpawn = false;
+        bool isUnderEnemySpawn = false;
+
+        if (playerSpawnPoints != null)
+        {
+            foreach (Transform p in playerSpawnPoints)
+            {
+                if (c.transform.IsChildOf(p))
+                {
+                    isUnderPlayerSpawn = true;
+                    break;
+                }
+            }
+        }
+
+        if (enemySpawnPoints != null)
+        {
+            foreach (Transform e in enemySpawnPoints)
+            {
+                if (c.transform.IsChildOf(e))
+                {
+                    isUnderEnemySpawn = true;
+                    break;
+                }
+            }
+        }
+
+        // If not attached to any current spawn point, remove it
+        if (!isUnderPlayerSpawn && !isUnderEnemySpawn)
+        {
+            Debug.Log($"🗑️ Destroying leftover character prefab: {c.name}");
+            DestroyImmediate(c.gameObject);
+        }
+    }
+
+    // 3️⃣ Clear local controller lists
+    playerControllers.Clear();
+    enemyControllers.Clear();
+
+    // 4️⃣ Also make sure we don't have any pending coroutines running from old battles
+    StopAllCoroutines();
+
+    Debug.Log("✅ Cleanup complete. Scene ready for new battle.");
+}
+
+
+  
 
     // Background fading helper
     private IEnumerator FadeRegionBackground(RegionData newRegion)

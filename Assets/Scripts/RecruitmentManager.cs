@@ -9,6 +9,11 @@ public class RecruitmentManager : MonoBehaviour
     private float persuasionChance = 5f;
     private bool recruitmentActive = false;
 
+    void Awake()
+{
+    DontDestroyOnLoad(gameObject);
+}
+
     public void StartRecruitment(CharacterRuntime newRecruit)
     {
         recruit = newRecruit;
@@ -105,4 +110,12 @@ public class RecruitmentManager : MonoBehaviour
         PersistentPlayerData.Instance.RemoveCharacter(oldMember.baseData.characterName);
         return true;
     }
+
+    public void ResetRecruitment()
+{
+    recruit = null;
+    attemptsLeft = 0;
+    persuasionChance = 0f;
+    recruitmentActive = false;
+}
 }
