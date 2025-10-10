@@ -2,31 +2,25 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
 
-/// <summary>
-/// Controls which enemies/regions the player encounters, in order.
-/// Handles normal, boss, and recruitment encounters.
-/// </summary>
 public class EncounterManager : MonoBehaviour
 {
     [Header("Region Setup (manually assigned in Inspector)")]
-    public RegionData region1; // Encounters 1–10
-    public RegionData region2; // Encounters 11–20
-    public RegionData region3; // Encounters 21–30
-    public RegionData region4; // Encounters 31–40
-    public RegionData region5; // Encounters 41–50
+    public RegionData region1;
+    public RegionData region2;
+    public RegionData region3;
+    public RegionData region4;
+    public RegionData region5;
 
     [Header("Encounter Control")]
     public int currentEncounter = 1;
     public int maxEncounters = 50;
 
     [Header("Starting Team (assign in inspector for first run)")]
-    [Tooltip("Initial player roster used when no persistent data exists.")]
     public List<CharacterData> startingTeam = new List<CharacterData>();
 
     [Header("Recruitment Settings")]
-    [Tooltip("Pool of recruitable characters.")]
     public List<CharacterData> recruitableCharacters = new List<CharacterData>();
-    public int encountersBeforeRecruitment = 10; // triggers after boss
+    public int encountersBeforeRecruitment = 10;
 
     [Header("Battle Reference")]
     public BattleManager battleManager;
@@ -51,10 +45,6 @@ public class EncounterManager : MonoBehaviour
         StartNextEncounter();
     }
 
-    // ==========================================================
-    // === ENCOUNTER LOGIC =====================================
-    // ==========================================================
-
     public void StartNextEncounter()
     {
         if (currentEncounter > maxEncounters)
@@ -63,7 +53,6 @@ public class EncounterManager : MonoBehaviour
             return;
         }
 
-        // 🧠 Regular encounters, except recruitment handled after boss
         RegionData currentRegion = GetRegionForEncounter(currentEncounter);
         if (currentRegion == null)
         {
@@ -100,7 +89,6 @@ public class EncounterManager : MonoBehaviour
             return team;
         }
 
-        // Boss every `encountersBeforeRecruitment` (default 10)
         bool isBossEncounter = currentEncounter % encountersBeforeRecruitment == 0;
         if (isBossEncounter && region.bossEnemy != null)
         {
@@ -109,7 +97,6 @@ public class EncounterManager : MonoBehaviour
             return team;
         }
 
-        // Regular enemies — pick random 1–3
         int enemyCount = Random.Range(1, 4);
         for (int i = 0; i < enemyCount; i++)
         {
@@ -120,40 +107,42 @@ public class EncounterManager : MonoBehaviour
         return team;
     }
 
-    // ==========================================================
-    // === END OF ENCOUNTER =====================================
-    // ==========================================================
-
     public void EndEncounter()
     {
         Debug.Log($"✅ Encounter {currentEncounter} complete!");
+        StartCoroutine(WaitUntilMoveLearningDone());
+    }
 
-        // After boss encounters (every 10th), trigger recruitment instead of moving directly
+    private IEnumerator WaitUntilMoveLearningDone()
+    {
+        var expSystem = FindFirstObjectByType<ExperienceSystem>();
+        if (expSystem != null)
+        {
+            while (expSystem.moveLearningInProgress)
+            {
+                yield return null;
+            }
+        }
+
         if (currentEncounter % encountersBeforeRecruitment == 0)
         {
             Debug.Log("👑 Boss defeated! Starting recruitment phase...");
             StartCoroutine(StartRecruitmentEncounterAfterBoss());
-            return;
         }
-
-        currentEncounter++;
-        Invoke(nameof(StartNextEncounter), 1.2f);
+        else
+        {
+            currentEncounter++;
+            Invoke(nameof(StartNextEncounter), 1.2f);
+        }
     }
 
     private IEnumerator StartRecruitmentEncounterAfterBoss()
     {
         yield return new WaitForSeconds(1f);
-        // Runs the recruitment encounter (this will block until the recruitment battle completes)
         yield return StartCoroutine(StartRecruitmentEncounter());
-
-        // After recruitment is done, continue to next region
         currentEncounter++;
         Invoke(nameof(StartNextEncounter), 1.2f);
     }
-
-    // ==========================================================
-    // === PLAYER TEAM LOADING ==================================
-    // ==========================================================
 
     private List<CharacterData> LoadPlayerTeam()
     {
@@ -183,10 +172,6 @@ public class EncounterManager : MonoBehaviour
         return playerTeamData;
     }
 
-    // ==========================================================
-    // === RECRUITMENT ENCOUNTER LOGIC ==========================
-    // ==========================================================
-
     private IEnumerator StartRecruitmentEncounter()
     {
         yield return new WaitForSeconds(1f);
@@ -198,7 +183,6 @@ public class EncounterManager : MonoBehaviour
             yield break;
         }
 
-        // Filter out recruits the player already owns
         var playerRuntimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
         List<string> ownedNames = new List<string>();
         foreach (var r in playerRuntimes)
@@ -212,18 +196,14 @@ public class EncounterManager : MonoBehaviour
             yield break;
         }
 
-        // Pick a random new recruit
         var recruitData = candidates[Random.Range(0, candidates.Count)];
         Debug.Log($"🎉 A recruitable hero appears: {recruitData.characterName}");
 
-        // Start recruitment battle via BattleManager so the player can fight + persuade
         if (battleManager != null)
         {
             var playerTeamData = LoadPlayerTeam();
-            // Use the BattleManager helper to start a recruitment battle with this recruit
             battleManager.StartRecruitmentBattle(playerTeamData, recruitData);
 
-            // Wait until BattleManager signals recruitment complete (success or failure)
             yield return new WaitUntil(() => battleManager.recruitmentComplete == true);
             Debug.Log("✨ Recruitment encounter finished.");
         }

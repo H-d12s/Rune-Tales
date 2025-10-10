@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Collections;
 
 /// <summary>
 /// Handles XP gain, level-ups, and stat growth for each character class.
@@ -18,24 +19,28 @@ public class ExperienceSystem : MonoBehaviour
     private List<CharacterBattleController> playerControllers;
     private static Dictionary<string, int> PlayerXPData = new Dictionary<string, int>();
 
+    // --- NEW FIELDS ---
+    public bool moveLearningInProgress = false;
+
+    // Queue to serialize move-learn prompts so only one prompt is active at a time.
+    private Queue<(CharacterRuntime runtime, AttackData newAttack)> moveLearnQueue = new Queue<(CharacterRuntime, AttackData)>();
+    private Coroutine queueProcessorCoroutine = null;
+
     public void Initialize(List<CharacterBattleController> playerTeam)
     {
         playerControllers = playerTeam;
         totalXPThisBattle = 0;
 
-        // 🧠 Restore XP + Level data from persistent save
+        // 🧠 Restore XP + Level data from persistent save (debug/logging)
         if (PersistentPlayerData.Instance != null)
-{
-    foreach (var controller in playerControllers)
-    {
-        var runtime = controller.GetRuntimeCharacter();
-
-        // Do NOT re-apply persistent data here; BattleManager already did.
-        if (PlayerXPData.ContainsKey(runtime.baseData.characterName))
-            Debug.Log($"♻️ Restored XP for {runtime.baseData.characterName}: {PlayerXPData[runtime.baseData.characterName]} XP");
-    }
-}
-
+        {
+            foreach (var controller in playerControllers)
+            {
+                var runtime = controller.GetRuntimeCharacter();
+                if (PlayerXPData.ContainsKey(runtime.baseData.characterName))
+                    Debug.Log($"♻️ Restored XP for {runtime.baseData.characterName}: {PlayerXPData[runtime.baseData.characterName]} XP");
+            }
+        }
     }
 
     public void GrantXP(CharacterData enemyData)
@@ -145,66 +150,105 @@ public class ExperienceSystem : MonoBehaviour
             {
                 runtime.equippedAttacks.Add(newAttack);
                 ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+
+                // Persist immediate if needed
+                if (PersistentPlayerData.Instance != null)
+                    PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
             }
             else
             {
-                PromptMoveReplace(runtime, newAttack);
+                // ENQUEUE instead of trying to prompt immediately.
+                EnqueueMoveLearn(runtime, newAttack);
             }
         }
     }
 
-  private void PromptMoveReplace(CharacterRuntime runtime, AttackData newAttack)
-{
-    Debug.Log($"🧠 {runtime.baseData.characterName} wants to learn {newAttack.attackName}, but already knows {runtime.equippedAttacks.Count} moves!");
-
-    // Collect the names of all current moves
-    var moveNames = new List<string>();
-    foreach (var atk in runtime.equippedAttacks)
-        moveNames.Add(atk.attackName);
-
-    // Show prompt via MoveReplaceUIManager
-    if (MoveReplaceUIManager.Instance != null)
+    private void EnqueueMoveLearn(CharacterRuntime runtime, AttackData newAttack)
     {
-        MoveReplaceUIManager.Instance.ShowReplacePrompt(
-            moveNames,
-            newAttack.attackName,
-            (replaceIndex) =>
+        // Add to queue
+        moveLearnQueue.Enqueue((runtime, newAttack));
+
+        // Start processing queue if not already
+        if (queueProcessorCoroutine == null)
+            queueProcessorCoroutine = StartCoroutine(ProcessMoveLearnQueue());
+    }
+
+    private IEnumerator ProcessMoveLearnQueue()
+    {
+        moveLearningInProgress = true;
+
+        while (moveLearnQueue.Count > 0)
+        {
+            var (runtime, newAttack) = moveLearnQueue.Dequeue();
+
+            bool decisionMade = false;
+
+            // Prepare a local handler to apply a replacement (used by UI callback)
+            System.Action<int> onReplace = (replaceIndex) =>
             {
-                // ✅ Replace the chosen move
-                var oldAttack = runtime.equippedAttacks[replaceIndex];
-                runtime.equippedAttacks[replaceIndex] = newAttack;
+                // Safety: ensure index valid
+                if (replaceIndex >= 0 && replaceIndex < runtime.equippedAttacks.Count)
+                {
+                    var oldAttack = runtime.equippedAttacks[replaceIndex];
+                    runtime.equippedAttacks[replaceIndex] = newAttack;
 
-                Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
-                ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+                    Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
+                    ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
 
-                // 🧩 Persist immediately
-                if (PersistentPlayerData.Instance != null)
-                    PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
-            },
-            () =>
+                    if (PersistentPlayerData.Instance != null)
+                        PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
+                }
+                else
+                {
+                    Debug.LogWarning("⚠️ Replace index out of range in move learn callback.");
+                }
+
+                decisionMade = true;
+            };
+
+            System.Action onCancel = () =>
             {
                 Debug.Log($"🕊️ {runtime.baseData.characterName} decided not to learn {newAttack.attackName}.");
-            });
-    }
-    else
-    {
-        // Fallback: if no UI manager is available, auto-replace the first move
-        Debug.LogWarning("⚠️ MoveReplaceUIManager not found, auto-replacing first move instead.");
-        if (runtime.equippedAttacks.Count > 0)
-        {
-            var oldAttack = runtime.equippedAttacks[0];
-            runtime.equippedAttacks[0] = newAttack;
+                decisionMade = true;
+            };
 
-            Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack.attackName} and learned {newAttack.attackName}!");
-            ShowLearnAttackPopup(runtime.baseData.characterName, newAttack.attackName);
+            // If UI manager exists, use it (it will invoke our callbacks when player chooses)
+            if (MoveReplaceUIManager.Instance != null)
+            {
+                var moveNames = new List<string>();
+                foreach (var atk in runtime.equippedAttacks)
+                    moveNames.Add(atk.attackName);
 
-            if (PersistentPlayerData.Instance != null)
-                PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
+                MoveReplaceUIManager.Instance.ShowReplacePrompt(moveNames, newAttack.attackName, onReplace, onCancel);
+
+                // wait until player makes a choice (callback flips decisionMade)
+                while (!decisionMade)
+                    yield return null;
+            }
+            else
+            {
+                // Fallback: log instructions and wait for N (skip)
+                Debug.LogWarning("⚠️ MoveReplaceUIManager not found. Press [N] to skip learning (one at a time).");
+                Debug.Log($"⏸️ {runtime.baseData.characterName} can learn {newAttack.attackName}. Press [N] to skip...");
+
+                // Wait until N pressed
+                while (!Input.GetKeyDown(KeyCode.N))
+                    yield return null;
+
+                Debug.Log($"🕊️ Skipped learning {newAttack.attackName} for {runtime.baseData.characterName}.");
+                // mark as done
+                decisionMade = true;
+            }
+
+            // small frame yield to ensure UI updates settle
+            yield return null;
         }
+
+        // all queued decisions done
+        moveLearningInProgress = false;
+        queueProcessorCoroutine = null;
+        Debug.Log("✅ All move learning complete — gameplay can resume.");
     }
-}
-
-
 
     private void ShowLevelUpPopup(string charName, int newLevel)
     {
