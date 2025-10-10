@@ -15,7 +15,7 @@ MonoBehaviour:
   attackName: Slash
   description: A slash attack from sword
   icon: {fileID: 0}
-  power: 40
+  power: 70
   maxUsage: 25
   chargeValue: 5
   priority: 0

@@ -704,19 +704,5 @@ public class BattleManager : MonoBehaviour
 
         backgroundImageUI.color = endColor;
     }
-    public void RefreshPlayerVisuals()
-{
-    var runtimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
-
-    for (int i = 0; i < playerControllers.Count; i++)
-    {
-        if (i < runtimes.Count)
-        {
-            playerControllers[i].characterData = runtimes[i].baseData;
-            playerControllers[i].InitializeCharacter();
-        }
-    }
-
-    Debug.Log("🔄 Refreshed player visuals after recruitment/replacement.");
-}
+    
 }
