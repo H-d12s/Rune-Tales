@@ -9,14 +9,12 @@ public class BattleUIManager : MonoBehaviour
 {
     [Header("UI Panels")]
     public GameObject mainActionPanel;
-    [HideInInspector] public Action onPersuadeChosen;
-
     public GameObject attackSelectionPanel;
 
     [Header("Buttons")]
     public Button attackButton;
     public Button retreatButton;
-    public Button persuadeButton; // 🆕 For recruitment encounters
+    public Button persuadeButton; // assigned in Inspector
     public List<Button> attackButtons;
 
     [Header("References")]
@@ -29,9 +27,9 @@ public class BattleUIManager : MonoBehaviour
     private bool isSelectingTarget = false;
     private AttackData selectedAttack;
 
-    // 🧩 This is now public so BattleManager can subscribe to it
+    // public callbacks that BattleManager assigns when a player's turn begins
     [HideInInspector] public Action<AttackData, CharacterBattleController> onAttackConfirmed;
-
+    [HideInInspector] public Action onPersuadeRequested; // NEW: invoked when Persuade button pressed
 
     void Start()
     {
@@ -62,7 +60,7 @@ public class BattleUIManager : MonoBehaviour
     }
 
     // ======================================================
-    // ⚔️ ATTACK LOGIC
+    // ATTACK UI
     // ======================================================
     private void OnAttackPressed()
     {
@@ -77,41 +75,45 @@ public class BattleUIManager : MonoBehaviour
     }
 
     // ======================================================
-    // 💬 PERSUASION LOGIC (Recruitment mode)
+    // PERSUADE BUTTON (calls callback assigned by BattleManager)
     // ======================================================
     private void OnPersuadePressed()
-{
-    if (battleManager == null)
     {
-        Debug.LogError("❌ BattleManager not found for persuasion!");
-        return;
+        // If a callback was assigned by BattleManager for the active character, invoke it.
+        // This ensures only the active character's persuade is processed.
+        if (onPersuadeRequested != null)
+        {
+            onPersuadeRequested.Invoke();
+            return;
+        }
+
+        // Fallback behavior: if no callback is set, call BattleManager directly (backwards compatibility)
+        if (battleManager == null)
+        {
+            Debug.LogError("❌ BattleManager not found for persuasion!");
+            return;
+        }
+
+        var enemies = battleManager.GetAllEnemies();
+        if (enemies == null || enemies.Count == 0)
+        {
+            Debug.LogWarning("⚠️ No enemies available to persuade!");
+            return;
+        }
+
+        CharacterBattleController target = enemies.Find(e => e != null && e.GetRuntimeCharacter().IsAlive);
+        if (target == null)
+        {
+            Debug.LogWarning("⚠️ No valid persuasion targets!");
+            return;
+        }
+
+        Debug.Log($"🗣️ Attempting to persuade {target.characterData.characterName} (fallback).");
+        battleManager.TryPersuade(target);
     }
-
-    var enemies = battleManager.GetAllEnemies();
-    if (enemies == null || enemies.Count == 0)
-    {
-        Debug.LogWarning("⚠️ No enemies available to persuade!");
-        return;
-    }
-
-    CharacterBattleController target = enemies.Find(e => e != null && e.GetRuntimeCharacter().IsAlive);
-    if (target == null)
-    {
-        Debug.LogWarning("⚠️ No valid persuasion targets!");
-        return;
-    }
-
-    Debug.Log($"🗣️ Attempting to persuade {target.characterData.characterName}...");
-    battleManager.TryPersuade(target);
-
-    // 🔹 Tell BattleManager that the turn for this character is done
-    onPersuadeChosen?.Invoke();
-
-    HideAll(); // close menus to visually show turn ended
-}
 
     // ======================================================
-    // 🎯 ATTACK TARGET SELECTION
+    // ATTACK TARGET SELECTION
     // ======================================================
     private void UpdateAttackButtons()
     {
@@ -152,9 +154,10 @@ public class BattleUIManager : MonoBehaviour
         Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a target...");
     }
 
+    // Called by enemy selection code when player selects an enemy target
     public void SetTarget(CharacterBattleController target)
     {
-        if (!isSelectingTarget || target.isPlayer)
+        if (!isSelectingTarget || target == null || target.isPlayer)
             return;
 
         currentTarget = target;
@@ -172,7 +175,7 @@ public class BattleUIManager : MonoBehaviour
     }
 
     // ======================================================
-    // PANEL CONTROL
+    // UI panels
     // ======================================================
     public void HideAll()
     {
@@ -195,7 +198,7 @@ public class BattleUIManager : MonoBehaviour
     }
 
     // ======================================================
-    // UI Helper for Persuasion Mode Toggle
+    // persuade button toggle
     // ======================================================
     public void SetPersuadeButtonActive(bool active)
     {
@@ -204,7 +207,7 @@ public class BattleUIManager : MonoBehaviour
     }
 
     // ======================================================
-    // GETTERS
+    // getters
     // ======================================================
     public bool IsSelectingTarget() => isSelectingTarget;
 }
