@@ -15,7 +15,7 @@ MonoBehaviour:
   attackName: Shield bash
   description: A shield bash that has a chance to stun enemy for 1 turn
   icon: {fileID: 0}
-  power: 15
+  power: 5
   maxUsage: 12
   chargeValue: 7
   priority: 0

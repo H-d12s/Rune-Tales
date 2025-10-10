@@ -13,12 +13,12 @@ MonoBehaviour:
   m_Name: BeginnerTown
   m_EditorClassIdentifier: 
   regionName: Beginner Town-Meadows
-  backgroundImage: {fileID: 0}
-  encounterChance: 0.5
+  backgroundImage: {fileID: -595809027089989364, guid: 438882cd828b44f4892597b6735ccf4a, type: 3}
+  minLevel: 1
+  maxLevel: 10
   possibleEnemies:
   - {fileID: 11400000, guid: 49c616cea87200d4f9630f45f0314c2a, type: 2}
   - {fileID: 11400000, guid: 825a51fb02b66fa4e946f94a5eb1e3eb, type: 2}
   - {fileID: 11400000, guid: 5b279890a139a754fae144f67fc03b98, type: 2}
   bossEnemy: {fileID: 11400000, guid: 3189f38cbf7f29041a4e1f5137e79089, type: 2}
-  recruitableCharacter: {fileID: 11400000, guid: 987080841091a6f419b6c8fea4f85fb9, type: 2}
-  nextRegion: {fileID: 11400000, guid: 0e9c2bb93eb76d947aba4a3486fa34d5, type: 2}
+  recruitableCharacter: {fileID: 0}

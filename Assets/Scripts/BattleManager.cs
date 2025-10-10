@@ -1,9 +1,16 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.UI;
+using System.Collections;
+
 
 public class BattleManager : MonoBehaviour
 {
+    [Header("Visuals")]
+public Image backgroundImageUI;       // assign from Canvas
+private RegionData currentRegion;     // stores current region data
+
     private List<CharacterBattleController> turnOrder = new List<CharacterBattleController>();
     private bool battleActive = false;
 
@@ -33,57 +40,126 @@ public class BattleManager : MonoBehaviour
     [Header("Spawn Offset")]
     public float verticalOffset = -1.5f;
 
+    // -------------------------
+    // Recruitment fields
+    // -------------------------
+    [Header("Recruitment")]
+    [HideInInspector] public bool isRecruitmentBattle = false;
+    [HideInInspector] public bool recruitmentComplete = false; // used by EncounterManager to wait
+    private CharacterBattleController recruitTarget = null;
+    public int maxPersuadeAttempts = 3;
+    private int persuadeAttempts = 0;
+
     // ==========================================================
     // 🚀 CALLED FROM ENCOUNTER MANAGER
     // ==========================================================
-    public void StartBattle(List<CharacterData> playerTeamData, List<CharacterData> enemyTeamData)
-    {
-        Debug.Log("⚔️ Starting new battle via EncounterManager...");
-        Debug.Log("⚔️ Starting new battle via EncounterManager...");
+   public void StartBattle(List<CharacterData> playerTeamData, List<CharacterData> enemyTeamData, RegionData region = null)
+{
+    Debug.Log("⚔️ Starting new battle via EncounterManager...");
 
     // 🧹 Reset any previous battle coroutine and state
-        StopAllCoroutines();
-        battleActive = false;
-        chosenActions.Clear();
-        playerControllers.Clear();
-        enemyControllers.Clear();
+    StopAllCoroutines();
+    battleActive = false;
+    chosenActions.Clear();
+    playerControllers.Clear();
+    enemyControllers.Clear();
 
-        playerTeam = playerTeamData;
-        enemyTeam = enemyTeamData;
+    playerTeam = playerTeamData;
+    enemyTeam = enemyTeamData;
+    currentRegion = region;
 
-        uiManager = FindFirstObjectByType<BattleUIManager>();
-        expSystem = FindFirstObjectByType<ExperienceSystem>();
-        encounterManager = FindFirstObjectByType<EncounterManager>();
+    uiManager = FindFirstObjectByType<BattleUIManager>();
+    expSystem = FindFirstObjectByType<ExperienceSystem>();
+    encounterManager = FindFirstObjectByType<EncounterManager>();
 
-        if (uiManager == null) Debug.LogError("❌ No BattleUIManager found!");
-        if (expSystem == null) Debug.LogError("❌ No ExperienceSystem found!");
-        if (encounterManager == null) Debug.LogError("❌ No EncounterManager found!");
+    if (uiManager == null) Debug.LogError("❌ No BattleUIManager found!");
+    if (expSystem == null) Debug.LogError("❌ No ExperienceSystem found!");
+    if (encounterManager == null) Debug.LogError("❌ No EncounterManager found!");
 
-        // Clean old spawned objects
-        ClearSpawnedCharacters();
+    // 🎨 Fade in region background if available
+    if (currentRegion != null)
+    {
+        Debug.Log($"🌄 Starting battle in region: {currentRegion.regionName}");
+        StartCoroutine(FadeRegionBackground(currentRegion));
+    }
 
-        // === SPAWN TEAMS ===
-        SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
-        SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
+    // Clean old spawned objects
+    ClearSpawnedCharacters();
 
-        // === Initialize EXP System AFTER persistence is applied ===
-        expSystem.Initialize(playerControllers);
+    // === SPAWN TEAMS ===
+    SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
+    SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
 
-        battleActive = true;
-        StartCoroutine(BattleLoop());
+    // === Recruitment battle setup ===
+    if (isRecruitmentBattle)
+    {
+        recruitTarget = enemyControllers.Count > 0 ? enemyControllers[0] : null;
+        persuadeAttempts = 0;
+        recruitmentComplete = false;
 
-        Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
+        if (uiManager != null)
+            uiManager.SetPersuadeButtonActive(true);
+
+        Debug.Log("🎯 Recruitment battle started.");
+    }
+    else
+    {
+        if (uiManager != null)
+            uiManager.SetPersuadeButtonActive(false);
+    }
+
+    // === Initialize EXP System AFTER persistence is applied ===
+    expSystem.Initialize(playerControllers);
+
+    // ✅ Begin battle loop
+    battleActive = true;
+    StartCoroutine(BattleLoop());
+
+    Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
+}
+
+
+    /// <summary>
+    /// Helper used by EncounterManager to start a recruitment battle where recruitData is the single enemy.
+    /// </summary>
+    public void StartRecruitmentBattle(List<CharacterData> playerTeamData, CharacterData recruitData)
+    {
+        if (recruitData == null)
+        {
+            Debug.LogError("❌ StartRecruitmentBattle called with null recruitData!");
+            return;
+        }
+
+        isRecruitmentBattle = true;
+        recruitmentComplete = false;
+        // set enemyTeam to contain only the recruit
+        var enemyList = new List<CharacterData> { recruitData };
+        StartBattle(playerTeamData, enemyList);
+    }
+
+    // ----------------------------------------------------------
+    // Small public helper for UI to list enemies / pick targets
+    // ----------------------------------------------------------
+    public List<CharacterBattleController> GetAllEnemies()
+    {
+        return new List<CharacterBattleController>(enemyControllers);
     }
 
     private void ClearSpawnedCharacters()
     {
-        foreach (Transform t in playerSpawnPoints)
-            for (int i = t.childCount - 1; i >= 0; i--)
-                Destroy(t.GetChild(i).gameObject);
+        if (playerSpawnPoints != null)
+        {
+            foreach (Transform t in playerSpawnPoints)
+                for (int i = t.childCount - 1; i >= 0; i--)
+                    Destroy(t.GetChild(i).gameObject);
+        }
 
-        foreach (Transform t in enemySpawnPoints)
-            for (int i = t.childCount - 1; i >= 0; i--)
-                Destroy(t.GetChild(i).gameObject);
+        if (enemySpawnPoints != null)
+        {
+            foreach (Transform t in enemySpawnPoints)
+                for (int i = t.childCount - 1; i >= 0; i--)
+                    Destroy(t.GetChild(i).gameObject);
+        }
 
         playerControllers.Clear();
         enemyControllers.Clear();
@@ -121,7 +197,7 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // 🌀 MAIN BATTLE LOOP
+    // 🌀 MAIN BATTLE LOOP (unchanged)
     // ==========================================================
     private IEnumerator BattleLoop()
     {
@@ -158,59 +234,73 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // 🧠 PLAYER COMMAND PHASE
+    // 🧠 PLAYER COMMAND PHASE (unchanged)
     // ==========================================================
-    private IEnumerator PlayerCommandPhase()
+  private IEnumerator PlayerCommandPhase()
+{
+    chosenActions.Clear();
+    playerChoiceIndex = 0;
+
+    while (playerChoiceIndex < playerControllers.Count)
     {
-        chosenActions.Clear();
-        playerChoiceIndex = 0;
+        var currentPlayer = playerControllers[playerChoiceIndex];
+        var runtime = currentPlayer.GetRuntimeCharacter();
 
-        while (playerChoiceIndex < playerControllers.Count)
+        if (!runtime.IsAlive)
         {
-            var currentPlayer = playerControllers[playerChoiceIndex];
-            var runtime = currentPlayer.GetRuntimeCharacter();
-
-            if (!runtime.IsAlive)
-            {
-                playerChoiceIndex++;
-                continue;
-            }
-
-            bool actionChosen = false;
-            AttackData chosenAttack = null;
-            CharacterBattleController chosenTarget = null;
-
-            uiManager.SetPlayerController(currentPlayer);
-            uiManager.BeginPlayerChoice((attack, target) =>
-            {
-                chosenAttack = attack;
-                chosenTarget = target;
-                actionChosen = true;
-            });
-
-            yield return new WaitUntil(() => actionChosen);
-
-            if (chosenAttack == null || chosenTarget == null)
-            {
-                var fallbackAttack = runtime.equippedAttacks.Count > 0 ? runtime.equippedAttacks[0] : null;
-                var fallbackTarget = enemyControllers.Find(e => e.GetRuntimeCharacter().IsAlive);
-
-                if (fallbackAttack != null && fallbackTarget != null)
-                    chosenActions[currentPlayer] = (fallbackAttack, fallbackTarget);
-            }
-            else
-            {
-                chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
-            }
-
             playerChoiceIndex++;
+            continue;
         }
 
-        yield return new WaitForSeconds(0.2f);
+        bool actionChosen = false;
+        AttackData chosenAttack = null;
+        CharacterBattleController chosenTarget = null;
+
+        uiManager.playerController = currentPlayer;
+        uiManager.ShowMainActions();
+
+        // 🎯 ATTACK chosen
+        uiManager.onAttackConfirmed = (attack, target) =>
+        {
+            chosenAttack = attack;
+            chosenTarget = target;
+            actionChosen = true;
+        };
+
+        // 💬 PERSUADE chosen
+        uiManager.onPersuadeChosen = () =>
+        {
+            // perform persuade logic immediately
+            var enemies = enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive);
+            if (enemies.Count > 0)
+            {
+                var target = enemies[0]; // always the first alive recruit
+                TryPersuade(target);
+            }
+
+            Debug.Log($"🗣️ {currentPlayer.characterData.characterName} used Persuade and ends their turn.");
+            actionChosen = true; // mark turn complete
+        };
+
+        // Wait for player input
+        yield return new WaitUntil(() => actionChosen);
+
+        // if Attack chosen, record it normally
+        if (chosenAttack != null && chosenTarget != null)
+        {
+            chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
+        }
+
+        playerChoiceIndex++;
     }
 
+    yield return new WaitForSeconds(0.2f);
+}
+
+
+
     // ==========================================================
-    // 🤖 ENEMY COMMAND PHASE
+    // 🤖 ENEMY COMMAND PHASE (unchanged)
     // ==========================================================
     private void EnemyCommandPhase()
     {
@@ -232,7 +322,7 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // ⚔️ ACTION RESOLUTION
+    // ⚔️ ACTION RESOLUTION (unchanged)
     // ==========================================================
     private IEnumerator ResolveActions()
     {
@@ -253,7 +343,7 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // 💥 ATTACK EXECUTION
+    // 💥 ATTACK EXECUTION (unchanged)
     // ==========================================================
     public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
     {
@@ -310,7 +400,7 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // ✨ HELPERS
+    // ✨ HELPERS (unchanged)
     // ==========================================================
     private IEnumerator FadeAndRemove(CharacterBattleController target)
     {
@@ -378,7 +468,255 @@ public class BattleManager : MonoBehaviour
         Debug.Log("🎉 Battle complete! XP distributed successfully!");
         Debug.Log("--------------------------------------------------------");
 
+        // If this was a recruitment battle but recruitment didn't complete (e.g. recruit died),
+        // mark recruitmentComplete so EncounterManager won't hang.
+        if (isRecruitmentBattle && !recruitmentComplete)
+        {
+            Debug.Log("⚠️ Recruitment battle ended (no recruit). Marking recruitment complete.");
+            recruitmentComplete = true;
+            isRecruitmentBattle = false;
+            if (uiManager != null)
+                uiManager.SetPersuadeButtonActive(false);
+        }
+
         if (encounterManager != null)
             encounterManager.EndEncounter();
     }
+
+    // ==========================================================
+    // 💬 PERSUASION: called from UI (BattleUIManager) or code
+    // ==========================================================
+    // Public overload so UI can pass a specific target.
+    public void TryPersuade(CharacterBattleController explicitTarget)
+    {
+        if (explicitTarget == null)
+        {
+            Debug.LogWarning("⚠️ TryPersuade called with null target.");
+            return;
+        }
+
+        // ensure this is the recruit we are dealing with in recruitment mode
+        if (!isRecruitmentBattle)
+        {
+            Debug.Log("❌ Not a recruitment battle.");
+            return;
+        }
+
+        recruitTarget = explicitTarget;
+        TryPersuade();
+    }
+
+    // Internal persuasion logic (uses recruitTarget)
+    public void TryPersuade()
+    {
+        if (!isRecruitmentBattle || recruitTarget == null)
+        {
+            Debug.Log("❌ No recruitment target!");
+            return;
+        }
+
+        if (persuadeAttempts >= maxPersuadeAttempts)
+        {
+            Debug.Log("😤 You've used all your persuasion attempts!");
+            // Recruitment failed — mark complete and cleanup
+            StartCoroutine(FinishRecruitment(false));
+            return;
+        }
+
+        persuadeAttempts++;
+
+        var targetRuntime = recruitTarget.GetRuntimeCharacter();
+        float hpRatio = (float)targetRuntime.currentHP / targetRuntime.runtimeHP; // 0..1
+
+        // Map hpRatio to chance bands (as requested)
+      // 🎯 HP-based persuasion formula (no stacking chance per click)
+float persuasionChance;
+
+if (hpRatio <= 0.02f) persuasionChance = 0.99f;      // 1–2% HP
+else if (hpRatio <= 0.10f) persuasionChance = 0.85f; // 2–10%
+else if (hpRatio <= 0.20f) persuasionChance = 0.65f; // 10–20%
+else if (hpRatio <= 0.30f) persuasionChance = 0.45f; // 20–30%
+else if (hpRatio <= 0.50f) persuasionChance = 0.30f; // 30–50%
+else if (hpRatio <= 0.70f) persuasionChance = 0.20f; // 50–70%
+else if (hpRatio <= 0.80f) persuasionChance = 0.15f; // 70–80%
+else if (hpRatio <= 0.90f) persuasionChance = 0.10f; // 80–90%
+else if (hpRatio <= 0.99f) persuasionChance = 0.07f; // 90–99%
+else persuasionChance = 0.05f;                       // 100% HP
+
+// No attempt-based increase. Only HP matters.
+Debug.Log($"🎯 Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%");
+
+        if (Random.value < persuasionChance)
+        {
+            Debug.Log("💖 Recruitment successful!");
+            StartCoroutine(HandleRecruitmentSuccess());
+        }
+        else
+        {
+            Debug.Log("💬 Recruitment failed this attempt.");
+            if (persuadeAttempts >= maxPersuadeAttempts)
+            {
+                Debug.Log("😔 No attempts left — recruit lost interest.");
+                StartCoroutine(FinishRecruitment(false));
+            }
+        }
+    }
+
+    // ==========================================================
+    // Recruitment success/failure handling
+    // ==========================================================
+    private IEnumerator HandleRecruitmentSuccess()
+{
+    yield return new WaitForSeconds(0.6f);
+
+    if (recruitTarget == null)
+    {
+        Debug.LogError("❌ recruitTarget null on success.");
+        yield break;
+    }
+
+    var recruitRuntime = recruitTarget.GetRuntimeCharacter();
+    if (recruitRuntime == null)
+    {
+        Debug.LogError("❌ recruit runtime null on success.");
+        yield break;
+    }
+
+    // 🎨 Fade out enemy (like dying animation)
+    yield return StartCoroutine(FadeAndRemove(recruitTarget));
+
+    // ✅ Add recruit to persistent data if space; otherwise prompt replacement
+    var playerRuntimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
+
+    if (playerRuntimes.Count < 3)
+    {
+        PersistentPlayerData.Instance.UpdateFromRuntime(recruitRuntime);
+        Debug.Log($"🎉 {recruitRuntime.baseData.characterName} joined your team!");
+        PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
+        yield return StartCoroutine(FinishRecruitment(true));
+        yield break;
+    }
+    else
+    {
+        Debug.Log("⚠️ Team full — press 1, 2 or 3 to replace a member.");
+
+        bool replaced = false;
+        while (!replaced)
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1))
+                replaced = ReplaceMemberByIndex(0, recruitRuntime);
+            else if (Input.GetKeyDown(KeyCode.Alpha2))
+                replaced = ReplaceMemberByIndex(1, recruitRuntime);
+            else if (Input.GetKeyDown(KeyCode.Alpha3))
+                replaced = ReplaceMemberByIndex(2, recruitRuntime);
+
+            yield return null;
+        }
+
+        PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
+        yield return StartCoroutine(FinishRecruitment(true));
+    }
+}
+
+    private bool ReplaceMemberByIndex(int index, CharacterRuntime newRuntime)
+    {
+        var runtimes = PersistentPlayerData.Instance.GetAllPlayerRuntimes();
+        if (index < 0 || index >= runtimes.Count)
+        {
+            Debug.Log("❌ Invalid index for replacement.");
+            return false;
+        }
+
+        var old = runtimes[index];
+        if (old == null)
+        {
+            Debug.Log("❌ No member at that slot.");
+            return false;
+        }
+
+        Debug.Log($"🔁 Replacing {old.baseData.characterName} with {newRuntime.baseData.characterName}.");
+
+        // Add/update new runtime to persistent data
+        PersistentPlayerData.Instance.UpdateFromRuntime(newRuntime);
+
+        // Remove the old member (assumes RemoveCharacter exists in your Persistent system)
+        PersistentPlayerData.Instance.RemoveCharacter(old.baseData.characterName);
+
+        return true;
+    }
+
+   private IEnumerator FinishRecruitment(bool success)
+{
+    isRecruitmentBattle = false;
+    recruitmentComplete = true;
+
+    if (uiManager != null)
+        uiManager.SetPersuadeButtonActive(false);
+
+    if (PersistentPlayerData.Instance != null)
+        PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
+
+    // 🧹 If failed, fade & remove the recruit (enemy runs away)
+    if (!success && recruitTarget != null)
+    {
+        Debug.Log($"💨 {recruitTarget.characterData.characterName} ran away after failed persuasion!");
+        yield return StartCoroutine(FadeAndRemove(recruitTarget));
+    }
+
+    yield return new WaitForSeconds(0.3f);
+
+    // 🧾 If all enemies gone, mark end of encounter
+    if (AreAllDead(enemyControllers))
+    {
+        yield return StartCoroutine(HandleVictory(enemyControllers));
+    }
+    else
+    {
+        // Remove recruitTarget from list cleanly if it still exists
+        enemyControllers.Remove(recruitTarget);
+    }
+}
+private IEnumerator FadeRegionBackground(RegionData newRegion)
+{
+    if (backgroundImageUI == null)
+    {
+        Debug.LogWarning("⚠️ No backgroundImageUI assigned in BattleManager!");
+        yield break;
+    }
+
+    // Fade out current background
+    float duration = 1f;
+    float t = 0f;
+    Color startColor = backgroundImageUI.color;
+    Color endColor = new Color(startColor.r, startColor.g, startColor.b, 0);
+
+    while (t < duration)
+    {
+        t += Time.deltaTime;
+        backgroundImageUI.color = Color.Lerp(startColor, endColor, t / duration);
+        yield return null;
+    }
+
+    // Change background sprite
+    if (newRegion != null && newRegion.backgroundImage != null)
+    {
+        backgroundImageUI.sprite = newRegion.backgroundImage;
+        backgroundImageUI.preserveAspect = true;
+    }
+
+    // Fade in new background
+    t = 0f;
+    startColor = backgroundImageUI.color;
+    endColor = new Color(startColor.r, startColor.g, startColor.b, 1);
+
+    while (t < duration)
+    {
+        t += Time.deltaTime;
+        backgroundImageUI.color = Color.Lerp(startColor, endColor, t / duration);
+        yield return null;
+    }
+
+    backgroundImageUI.color = endColor;
+}
+
 }

@@ -9,11 +9,14 @@ public class BattleUIManager : MonoBehaviour
 {
     [Header("UI Panels")]
     public GameObject mainActionPanel;
+    [HideInInspector] public Action onPersuadeChosen;
+
     public GameObject attackSelectionPanel;
 
     [Header("Buttons")]
     public Button attackButton;
     public Button retreatButton;
+    public Button persuadeButton; // 🆕 For recruitment encounters
     public List<Button> attackButtons;
 
     [Header("References")]
@@ -26,12 +29,10 @@ public class BattleUIManager : MonoBehaviour
     private bool isSelectingTarget = false;
     private AttackData selectedAttack;
 
-    // Callback from BattleManager
-    private Action<AttackData, CharacterBattleController> onAttackConfirmed;
+    // 🧩 This is now public so BattleManager can subscribe to it
+    [HideInInspector] public Action<AttackData, CharacterBattleController> onAttackConfirmed;
 
-    // =====================================================================
-    // 🏁 INITIALIZATION
-    // =====================================================================
+
     void Start()
     {
         StartCoroutine(InitializeUI());
@@ -43,37 +44,26 @@ public class BattleUIManager : MonoBehaviour
 
         battleManager = FindFirstObjectByType<BattleManager>();
 
-        // ✅ Panels
         if (attackSelectionPanel) attackSelectionPanel.SetActive(false);
-        if (mainActionPanel) mainActionPanel.SetActive(true); // visible at start
+        if (mainActionPanel) mainActionPanel.SetActive(true);
 
-        // ✅ Buttons
         if (attackButton)
             attackButton.onClick.AddListener(OnAttackPressed);
 
         if (retreatButton)
             retreatButton.onClick.AddListener(OnRetreatPressed);
+
+        if (persuadeButton)
+            persuadeButton.onClick.AddListener(OnPersuadePressed);
+
+        // By default persuade button hidden until recruitment mode starts
+        if (persuadeButton != null)
+            persuadeButton.gameObject.SetActive(false);
     }
 
-    // =====================================================================
-    // 🎮 PLAYER COMMAND PHASE
-    // =====================================================================
-    public void BeginPlayerChoice(Action<AttackData, CharacterBattleController> callback)
-    {
-        onAttackConfirmed = callback;
-        ShowMainActions();
-    }
-
-    public void SetPlayerController(CharacterBattleController controller)
-    {
-        playerController = controller;
-        playerRuntime = controller.GetRuntimeCharacter();
-        UpdateAttackButtons();
-    }
-
-    // =====================================================================
-    // ⚔️ ATTACK BUTTON HANDLING
-    // =====================================================================
+    // ======================================================
+    // ⚔️ ATTACK LOGIC
+    // ======================================================
     private void OnAttackPressed()
     {
         if (mainActionPanel) mainActionPanel.SetActive(false);
@@ -83,11 +73,49 @@ public class BattleUIManager : MonoBehaviour
 
     private void OnRetreatPressed()
     {
-        Debug.Log("🏃 Retreat pressed (todo)");
+        Debug.Log("🏃 Retreat pressed (todo: implement retreat logic)");
     }
 
+    // ======================================================
+    // 💬 PERSUASION LOGIC (Recruitment mode)
+    // ======================================================
+    private void OnPersuadePressed()
+{
+    if (battleManager == null)
+    {
+        Debug.LogError("❌ BattleManager not found for persuasion!");
+        return;
+    }
+
+    var enemies = battleManager.GetAllEnemies();
+    if (enemies == null || enemies.Count == 0)
+    {
+        Debug.LogWarning("⚠️ No enemies available to persuade!");
+        return;
+    }
+
+    CharacterBattleController target = enemies.Find(e => e != null && e.GetRuntimeCharacter().IsAlive);
+    if (target == null)
+    {
+        Debug.LogWarning("⚠️ No valid persuasion targets!");
+        return;
+    }
+
+    Debug.Log($"🗣️ Attempting to persuade {target.characterData.characterName}...");
+    battleManager.TryPersuade(target);
+
+    // 🔹 Tell BattleManager that the turn for this character is done
+    onPersuadeChosen?.Invoke();
+
+    HideAll(); // close menus to visually show turn ended
+}
+
+    // ======================================================
+    // 🎯 ATTACK TARGET SELECTION
+    // ======================================================
     private void UpdateAttackButtons()
     {
+        playerRuntime = playerController != null ? playerController.GetRuntimeCharacter() : null;
         var attacks = playerRuntime?.equippedAttacks;
         if (attacks == null) return;
 
@@ -98,7 +126,8 @@ public class BattleUIManager : MonoBehaviour
             {
                 var attack = attacks[i];
                 button.gameObject.SetActive(true);
-                button.GetComponentInChildren<TextMeshProUGUI>().text = attack.attackName;
+                var label = button.GetComponentInChildren<TextMeshProUGUI>();
+                if (label != null) label.text = attack.attackName;
 
                 button.onClick.RemoveAllListeners();
                 button.onClick.AddListener(() => OnAttackChosen(attack));
@@ -123,9 +152,6 @@ public class BattleUIManager : MonoBehaviour
         Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Now select a target...");
     }
 
-    // =====================================================================
-    // 🎯 TARGET SELECTION
-    // =====================================================================
     public void SetTarget(CharacterBattleController target)
     {
         if (!isSelectingTarget || target.isPlayer)
@@ -134,16 +160,9 @@ public class BattleUIManager : MonoBehaviour
         currentTarget = target;
         isSelectingTarget = false;
 
-        Debug.Log($"🎯 Target selected: {target.characterData.characterName}");
-        Debug.Log($"⚔️ {playerController.characterData.characterName} attacks {target.characterData.characterName}!");
-
-        // ✅ Confirm to BattleManager
         if (selectedAttack != null)
             onAttackConfirmed?.Invoke(selectedAttack, currentTarget);
-        else
-            Debug.LogWarning("⚠️ No attack selected before choosing target!");
 
-        // Reset flicker/highlight
         var selector = target.GetComponent<EnemySelector>();
         if (selector != null)
             selector.Highlight(false);
@@ -152,9 +171,9 @@ public class BattleUIManager : MonoBehaviour
         selectedAttack = null;
     }
 
-    // =====================================================================
-    // 🧩 PANEL CONTROL
-    // =====================================================================
+    // ======================================================
+    // PANEL CONTROL
+    // ======================================================
     public void HideAll()
     {
         if (mainActionPanel) mainActionPanel.SetActive(false);
@@ -175,8 +194,17 @@ public class BattleUIManager : MonoBehaviour
         selectedAttack = null;
     }
 
-    // =====================================================================
-    // ⚙️ ACCESSORS
-    // =====================================================================
+    // ======================================================
+    // UI Helper for Persuasion Mode Toggle
+    // ======================================================
+    public void SetPersuadeButtonActive(bool active)
+    {
+        if (persuadeButton != null)
+            persuadeButton.gameObject.SetActive(active);
+    }
+
+    // ======================================================
+    // GETTERS
+    // ======================================================
     public bool IsSelectingTarget() => isSelectingTarget;
 }

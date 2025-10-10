@@ -13,13 +13,12 @@ MonoBehaviour:
   m_Name: Catacombs
   m_EditorClassIdentifier: 
   regionName: Catcombs
-  backgroundImage: {fileID: 0}
+  backgroundImage: {fileID: 3356878318550890330, guid: dd5f488309c54dd49a2f2edc304ed787, type: 3}
   minLevel: 31
   maxLevel: 40
   possibleEnemies:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  bossEnemy: {fileID: 0}
+  - {fileID: 11400000, guid: 49c616cea87200d4f9630f45f0314c2a, type: 2}
+  - {fileID: 11400000, guid: 825a51fb02b66fa4e946f94a5eb1e3eb, type: 2}
+  - {fileID: 11400000, guid: 5b279890a139a754fae144f67fc03b98, type: 2}
+  bossEnemy: {fileID: 11400000, guid: 3189f38cbf7f29041a4e1f5137e79089, type: 2}
   recruitableCharacter: {fileID: 0}
