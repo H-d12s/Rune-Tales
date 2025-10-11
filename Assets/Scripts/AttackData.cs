@@ -9,16 +9,72 @@ public class AttackData : ScriptableObject
     public Sprite icon;
 
     [Header("Stats")]
-    public int power;            // Base damage
-    public int maxUsage;         // Like PP
-    public int chargeValue;      // Fills the ultimate bar
-    public int priority = 0;     // Higher = acts earlier in the turn
-    public bool targetsAllEnemies = false; // True = hits all enemies
+    public int power;                     // Base damage (multiplied by dice roll)
+    public int maxUsage;                  // Like PP
+    public int chargeValue;               // Fills ultimate bar
+    public bool isAoE = false; // True = AoE attack
 
-    [Header("Special Effect")]
+    [Header("Dice Roll")]
+    public int diceMin = 1;               // Minimum dice roll
+    public int diceMax = 10;              // Maximum dice roll
+
+    [Header("Special Effects")]
     public AttackEffectType effectType = AttackEffectType.None;
-    [Range(0f, 1f)] public float effectChance = 0f; // 0.3 = 30% chance
-    public int effectDuration = 0;                  // Turns effect lasts (for poison/stun/etc.)
+    [Range(0f, 1f)] public float effectChance = 0f;    // 0.3 = 30%
+    public int effectDuration = 0;             
+    
+    public bool isLifeLeech;
+    public float lifeLeechPercent = 0.5f; // heal % of damage dealt         // Turns effect lasts (poison, burn, stun, etc.)
+
+    [Header("Setup / Non-Damage Moves")]
+    public bool isNonDamageMove = false; 
+    public bool healsTarget = false; // Is this a heal move?
+
+
+    [Header("Buffs / Debuffs")]
+    public bool buffAttack = false;
+    public float buffAttackAmount = 0;
+    public bool buffDefense = false;
+    public float buffDefenseAmount = 0;
+    public bool debuffAttack = false;
+    public float debuffAttackAmount = 0;
+    public bool debuffDefense = false;
+    public float debuffDefenseAmount = 0;
+
+   [Header("Speed / Turn Order")]
+    public bool buffSpeed = false;
+    public float buffSpeedAmount = 0f;       // e.g. +20% speed
+    public bool debuffSpeed = false;
+    public float debuffSpeedAmount = 0f;     // e.g. -15% speed
+
+          
+    public bool usePriority = false;   
+    [Header("Conditional / Risk-Reward")]
+    public bool scalesWithFallenAllies = false;   // For moves like VENGEANCE
+    public float fallenAlliesMultiplier = 1f;     // How much it scales
+    
+    // For moves like Execution
+    public bool scalesWithFallenEnemies = false;
+    public float fallenEnemiesMultiplier = 1f; // For moves like Execution
+
+    public bool scalesWithUserHP = false;         // For moves like Purgatory
+    public float hpDamageMultiplier = 1f;         // Damage scaling as HP lowers
+    public bool conditionalStanceMultiplier = false; // For Ichimonji, Quick Slash, etc.
+    public float stanceMultiplier = 1f;
+
+    [Header("Targeting")]
+    public bool affectsSelf;
+    public bool manualBuffTargetSelection = false;
+
+    // NEW: apply this attack's buffs/debuffs to the attacker (while still targeting enemy)
+    public bool applyEffectsToSelf = false;
+
+    [Header("Setup / Next Move Effects")]
+    public bool modifiesNextAttack = false;   // True for skills like Assassinate
+    public float nextAttackMultiplier = 1f;   // Multiplier applied to next attack
+    public bool modifiesNextDice = false;     // True for skills like Locked & Loaded
+    public int nextDiceMin = 1;               // Min dice for next attack
+    public int nextDiceMax = 10;              // Max dice for next attack
 
     [HideInInspector] public int currentUsage;
 
@@ -26,6 +82,11 @@ public class AttackData : ScriptableObject
     {
         currentUsage = maxUsage;
     }
+
+
+    
+    
+    
 }
 
 public enum AttackEffectType
@@ -34,9 +95,8 @@ public enum AttackEffectType
     Stun,
     Poison,
     Burn,
-    Heal,
-    BuffAttack,
-    BuffDefense,
-    DebuffAttack,
-    DebuffDefense
+    buffAttack,
+    buffDefense,
+    debuffAttack,   
+    debuffDefense
 }
