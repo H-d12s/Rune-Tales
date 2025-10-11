@@ -120,13 +120,23 @@ public class ExperienceSystem : MonoBehaviour
                 hpGrowth = 0.2f; atkGrowth = 0.15f; defGrowth = 0.1f; spdGrowth = 0.03f;
                 break;
             case "mage":
-                hpGrowth = 0.1f; atkGrowth = 0.2f; defGrowth = 0.05f; spdGrowth = 0.05f;
+                hpGrowth = 0.1f; atkGrowth = 0.6f; defGrowth = 0.05f; spdGrowth = 0.05f;
                 break;
-            case "rogue":
-                hpGrowth = 0.1f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.15f;
+            case "archer":
+                hpGrowth = 0.1f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.12f;
                 break;
-            case "tank":
-                hpGrowth = 0.25f; atkGrowth = 0.08f; defGrowth = 0.15f; spdGrowth = 0.02f;
+            case "assassin":
+                hpGrowth = 0.25f; atkGrowth = 0.08f; defGrowth = 0.05f; spdGrowth = 0.12f;
+                break;
+             case "pyromancer":
+                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
+                break;
+            
+            case "gunslinger":
+                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
+                break;
+             case "priest":
+                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
                 break;
         }
 

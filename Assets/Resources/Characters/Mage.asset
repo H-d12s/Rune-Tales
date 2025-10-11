@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d8bff1d514ab874c8aed0c2f9fb2263, type: 3}
+  m_Name: Mage
+  m_EditorClassIdentifier: 
+  characterName: Hades
+  characterTag: mage
+  portrait: {fileID: 1457491203435894738, guid: 9a4e07a21ddaf9e46808fac2f68e8d27, type: 3}
+  baseHP: 100
+  baseAttack: 20
+  baseDefense: 30
+  baseSpeed: 12
+  learnableAttacks:
+  - attack: {fileID: 11400000, guid: 86f3e79db24eb6e47b663eb8da6fb8cd, type: 2}
+    levelToLearn: 1
+  - attack: {fileID: 11400000, guid: 5693874c5e957894e88b77dab511ccc2, type: 2}
+    levelToLearn: 3
+  - attack: {fileID: 11400000, guid: d71999bcd6d08604689511aebe06874b, type: 2}
+    levelToLearn: 6
+  - attack: {fileID: 11400000, guid: 2872d55bd2aa4cb43a4ab4171599c161, type: 2}
+    levelToLearn: 14
+  - attack: {fileID: 11400000, guid: 774289fd15972ea48a962ddff5590628, type: 2}
+    levelToLearn: 20
+  - attack: {fileID: 11400000, guid: 8984b8b81d3685d46a99a41fc018f76b, type: 2}
+    levelToLearn: 25
+  - attack: {fileID: 11400000, guid: a8c94e4527fa8c5488ee2f503354a756, type: 2}
+    levelToLearn: 30
+  ultimateSkill: {fileID: 0}
+  expReward: 50

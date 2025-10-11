@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
   m_Name: Arrow Rain
   m_EditorClassIdentifier: 
-  attackName: 'Pierce '
+  attackName: Arrow Rain
   description: 
   icon: {fileID: 0}
   power: 35
@@ -57,4 +57,4 @@ MonoBehaviour:
   modifiesNextDice: 0
   nextDiceMin: 1
   nextDiceMax: 10
-  currentUsage: 25
+  currentUsage: 15

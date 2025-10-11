@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d8bff1d514ab874c8aed0c2f9fb2263, type: 3}
+  m_Name: Warrior
+  m_EditorClassIdentifier: 
+  characterName: Helios
+  characterTag: warrior
+  portrait: {fileID: -5711848221618334454, guid: 36161c8596144534a83150aa04bad4c1, type: 3}
+  baseHP: 125
+  baseAttack: 25
+  baseDefense: 25
+  baseSpeed: 10
+  learnableAttacks:
+  - attack: {fileID: 11400000, guid: 96467b9b851967d44865ad1dd1a3c469, type: 2}
+    levelToLearn: 1
+  - attack: {fileID: 11400000, guid: 8647e6f3bcec5e34788ada1c444b263f, type: 2}
+    levelToLearn: 3
+  - attack: {fileID: 11400000, guid: 622b67824965507458359ec36c9bd139, type: 2}
+    levelToLearn: 8
+  - attack: {fileID: 11400000, guid: a123f36d354a12d4baefdc754ed1fe65, type: 2}
+    levelToLearn: 16
+  - attack: {fileID: 11400000, guid: 0fedd0b169e7f75429e7ab59c1d12ef3, type: 2}
+    levelToLearn: 20
+  - attack: {fileID: 11400000, guid: 97041913075605d4a96f7155d35c9b3f, type: 2}
+    levelToLearn: 25
+  - attack: {fileID: 11400000, guid: bb18803063b490f42bde3d33a356322b, type: 2}
+    levelToLearn: 30
+  ultimateSkill: {fileID: 0}
+  expReward: 50

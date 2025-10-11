@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d8bff1d514ab874c8aed0c2f9fb2263, type: 3}
+  m_Name: Samurai
+  m_EditorClassIdentifier: 
+  characterName: Ublader
+  characterTag: warrior
+  portrait: {fileID: -5711848221618334454, guid: 36161c8596144534a83150aa04bad4c1, type: 3}
+  baseHP: 110
+  baseAttack: 23
+  baseDefense: 17
+  baseSpeed: 14
+  learnableAttacks:
+  - attack: {fileID: 11400000, guid: da20b84c4bd28ee4d9431206ae012e46, type: 2}
+    levelToLearn: 1
+  - attack: {fileID: 11400000, guid: 0d14f2145076f264193620f4f49e3ae0, type: 2}
+    levelToLearn: 3
+  - attack: {fileID: 11400000, guid: 765a54bfe22bde549bb712fc143d6ce6, type: 2}
+    levelToLearn: 8
+  - attack: {fileID: 11400000, guid: 0fedd0b169e7f75429e7ab59c1d12ef3, type: 2}
+    levelToLearn: 16
+  - attack: {fileID: 11400000, guid: adce31e66af145448820246ddfe4a661, type: 2}
+    levelToLearn: 20
+  - attack: {fileID: 11400000, guid: d7a6b7ce2343d3248b7e691123efb31b, type: 2}
+    levelToLearn: 25
+  - attack: {fileID: 11400000, guid: c04f8a82eebfd9b4da17d4e5d05e6f15, type: 2}
+    levelToLearn: 30
+  ultimateSkill: {fileID: 0}
+  expReward: 50

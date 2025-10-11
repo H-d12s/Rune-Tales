@@ -429,6 +429,13 @@ MonoBehaviour:
   - {fileID: 11400000, guid: c0193f4ef31dc444d992433b57dcaaa9, type: 2}
   recruitableCharacters:
   - {fileID: 11400000, guid: ac4c9ba18b352154292fb355f6f7e2b3, type: 2}
+  - {fileID: 11400000, guid: 00c0b45b41250e94283698f0eeefecdb, type: 2}
+  - {fileID: 11400000, guid: c0193f4ef31dc444d992433b57dcaaa9, type: 2}
+  - {fileID: 11400000, guid: 3e1d16eb163f2724e90aa29f9ea0b86d, type: 2}
+  - {fileID: 11400000, guid: a722788845688d14a9d4d0bd27edb1e6, type: 2}
+  - {fileID: 11400000, guid: 6aa9bba589cc78140951459714e7cdeb, type: 2}
+  - {fileID: 11400000, guid: 987080841091a6f419b6c8fea4f85fb9, type: 2}
+  - {fileID: 11400000, guid: 849c1ef0c93eb3a4fb1d695ffe80a654, type: 2}
   encountersBeforeRecruitment: 10
   battleManager: {fileID: 890644374}
 --- !u!4 &67563756

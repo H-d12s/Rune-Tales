@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d8bff1d514ab874c8aed0c2f9fb2263, type: 3}
+  m_Name: Pyromancer
+  m_EditorClassIdentifier: 
+  characterName: Roy
+  characterTag: pyromancer
+  portrait: {fileID: 3613407544420638092, guid: 4b8c89df29f269d49a44008816b5578f, type: 3}
+  baseHP: 90
+  baseAttack: 17
+  baseDefense: 20
+  baseSpeed: 10
+  learnableAttacks:
+  - attack: {fileID: 11400000, guid: 2c6028fd7952ac74697143cdd670af26, type: 2}
+    levelToLearn: 1
+  - attack: {fileID: 11400000, guid: 5baa76ca85bd0694797c464e70528363, type: 2}
+    levelToLearn: 1
+  - attack: {fileID: 11400000, guid: e17ac8883b3ae4e45832735b169f753e, type: 2}
+    levelToLearn: 2
+  - attack: {fileID: 11400000, guid: 1aa964901a1a62f42b1540bb5f2d3cab, type: 2}
+    levelToLearn: 20
+  - attack: {fileID: 11400000, guid: 95c14febddec29e4ebf0b17e081f9cd3, type: 2}
+    levelToLearn: 25
+  - attack: {fileID: 11400000, guid: 8953240f8037fe94791db9b9fe078bfc, type: 2}
+    levelToLearn: 30
+  ultimateSkill: {fileID: 0}
+  expReward: 50

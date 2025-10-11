@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
   m_Name: Locked And Loaded
   m_EditorClassIdentifier: 
-  attackName: 'Pierce '
+  attackName: Locked And Loaded
   description: 
   icon: {fileID: 0}
   power: 0
