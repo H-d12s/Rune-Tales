@@ -66,6 +66,9 @@ public class AttackData : ScriptableObject
     public bool affectsSelf;
     public bool manualBuffTargetSelection = false;
 
+    // NEW: apply this attack's buffs/debuffs to the attacker (while still targeting enemy)
+    public bool applyEffectsToSelf = false;
+
     [Header("Setup / Next Move Effects")]
     public bool modifiesNextAttack = false;   // True for skills like Assassinate
     public float nextAttackMultiplier = 1f;   // Multiplier applied to next attack
@@ -79,6 +82,9 @@ public class AttackData : ScriptableObject
     {
         currentUsage = maxUsage;
     }
+
+
+    
     
     
 }

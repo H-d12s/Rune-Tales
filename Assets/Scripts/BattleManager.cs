@@ -4,215 +4,215 @@ using System.Collections.Generic;
 
 public class BattleManager : MonoBehaviour
 {
-private List<CharacterBattleController> turnOrder = new List<CharacterBattleController>();
-private bool battleActive = false;
+    private List<CharacterBattleController> turnOrder = new List<CharacterBattleController>();
+    private bool battleActive = false;
 
 
-private ExperienceSystem expSystem;
-private BattleUIManager uiManager;
+    private ExperienceSystem expSystem;
+    private BattleUIManager uiManager;
 
-[Header("Spawn Points")]
-public Transform[] playerSpawnPoints;
-public Transform[] enemySpawnPoints;
+    [Header("Spawn Points")]
+    public Transform[] playerSpawnPoints;
+    public Transform[] enemySpawnPoints;
 
-[Header("Prefabs")]
-public GameObject characterPrefab;
+    [Header("Prefabs")]
+    public GameObject characterPrefab;
 
-[Header("Teams")]
-public List<CharacterData> playerTeam;
-public List<CharacterData> enemyTeam;
+    [Header("Teams")]
+    public List<CharacterData> playerTeam;
+    public List<CharacterData> enemyTeam;
 
-private List<CharacterBattleController> playerControllers = new List<CharacterBattleController>();
-private List<CharacterBattleController> enemyControllers = new List<CharacterBattleController>();
+    private List<CharacterBattleController> playerControllers = new List<CharacterBattleController>();
+    private List<CharacterBattleController> enemyControllers = new List<CharacterBattleController>();
 
-private int playerChoiceIndex = 0;
+    private int playerChoiceIndex = 0;
 
-private Dictionary<CharacterBattleController, (AttackData, CharacterBattleController)> chosenActions =
-    new Dictionary<CharacterBattleController, (AttackData, CharacterBattleController)>();
+    private Dictionary<CharacterBattleController, (AttackData, CharacterBattleController)> chosenActions =
+        new Dictionary<CharacterBattleController, (AttackData, CharacterBattleController)>();
 
-[Header("Spawn Offset")]
-public float verticalOffset = -1.5f;
+    [Header("Spawn Offset")]
+    public float verticalOffset = -1.5f;
 
-// ==========================
-// ⚙️ INITIALIZATION
-// ==========================
-void Start()
-{
-    uiManager = FindFirstObjectByType<BattleUIManager>();
-    expSystem = FindFirstObjectByType<ExperienceSystem>();
-
-    if (uiManager == null)
+    // ==========================
+    // ⚙️ INITIALIZATION
+    // ==========================
+    void Start()
     {
-        Debug.LogError("❌ No BattleUIManager found in scene!");
-        return;
-    }
+        uiManager = FindFirstObjectByType<BattleUIManager>();
+        expSystem = FindFirstObjectByType<ExperienceSystem>();
 
-    if (expSystem == null)
-    {
-        Debug.LogError("❌ No ExperienceSystem found in scene!");
-        return;
-    }
-
-    // Spawn teams
-    SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
-    SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
-
-    expSystem.Initialize(playerControllers);
-
-    Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
-    Debug.Log("--------------------------------------------------------");
-
-    battleActive = true;
-    StartCoroutine(BattleLoop());
-}
-
-private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints, List<CharacterBattleController> list, bool isPlayer)
-{
-    for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
-    {
-        var obj = Instantiate(characterPrefab, spawnPoints[i].position + new Vector3(0, verticalOffset, 0), Quaternion.identity);
-        var ctrl = obj.GetComponent<CharacterBattleController>();
-
-        ctrl.characterData = teamData[i];
-        ctrl.isPlayer = isPlayer;
-        ctrl.InitializeCharacter();
-
-        // Flip enemies visually
-        if (!isPlayer)
+        if (uiManager == null)
         {
-            var scale = obj.transform.localScale;
-            scale.x = Mathf.Abs(scale.x) * -1;
-            obj.transform.localScale = scale;
+            Debug.LogError("❌ No BattleUIManager found in scene!");
+            return;
         }
 
-        list.Add(ctrl);
+        if (expSystem == null)
+        {
+            Debug.LogError("❌ No ExperienceSystem found in scene!");
+            return;
+        }
+
+        // Spawn teams
+        SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
+        SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
+
+        expSystem.Initialize(playerControllers);
+
+        Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
+        Debug.Log("--------------------------------------------------------");
+
+        battleActive = true;
+        StartCoroutine(BattleLoop());
     }
-}
 
-// ==========================
-// 🔁 MAIN BATTLE LOOP
-// ==========================
-private IEnumerator BattleLoop()
-{
-    while (battleActive)
+    private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints, List<CharacterBattleController> list, bool isPlayer)
     {
-        // === Player Turn ===
-        yield return StartCoroutine(PlayerCommandPhase());
-
-        // === Enemy Turn ===
-        EnemyCommandPhase();
-
-        // === Resolve All Actions by Speed ===
-        yield return StartCoroutine(ResolveActions());
-        
-        // === Tick End-of-Turn Effects for all characters ===
-        foreach (var c in playerControllers) 
-            c.EndTurnEffects();
-        foreach (var c in enemyControllers) 
-            c.EndTurnEffects();
-
-        // === Check Victory/Defeat ===
-        if (AreAllDead(enemyControllers))
+        for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
         {
-            StartCoroutine(HandleVictory(enemyControllers));
-            yield break;
-        }
+            var obj = Instantiate(characterPrefab, spawnPoints[i].position + new Vector3(0, verticalOffset, 0), Quaternion.identity);
+            var ctrl = obj.GetComponent<CharacterBattleController>();
 
-        if (AreAllDead(playerControllers))
+            ctrl.characterData = teamData[i];
+            ctrl.isPlayer = isPlayer;
+            ctrl.InitializeCharacter();
+
+            // Flip enemies visually
+            if (!isPlayer)
+            {
+                var scale = obj.transform.localScale;
+                scale.x = Mathf.Abs(scale.x) * -1;
+                obj.transform.localScale = scale;
+            }
+
+            list.Add(ctrl);
+        }
+    }
+
+    // ==========================
+    // 🔁 MAIN BATTLE LOOP
+    // ==========================
+    private IEnumerator BattleLoop()
+    {
+        while (battleActive)
         {
-            Debug.Log("💀 All players fainted! You lost...");
-            battleActive = false;
-            yield break;
-        }
+            // === Player Turn ===
+            yield return StartCoroutine(PlayerCommandPhase());
 
+            // === Enemy Turn ===
+            EnemyCommandPhase();
+
+            // === Resolve All Actions by Speed ===
+            yield return StartCoroutine(ResolveActions());
+
+            // === Tick End-of-Turn Effects for all characters ===
+            foreach (var c in playerControllers)
+                c.EndTurnEffects();
+            foreach (var c in enemyControllers)
+                c.EndTurnEffects();
+
+            // === Check Victory/Defeat ===
+            if (AreAllDead(enemyControllers))
+            {
+                StartCoroutine(HandleVictory(enemyControllers));
+                yield break;
+            }
+
+            if (AreAllDead(playerControllers))
+            {
+                Debug.Log("💀 All players fainted! You lost...");
+                battleActive = false;
+                yield break;
+            }
+
+            chosenActions.Clear();
+            playerChoiceIndex = 0;
+        }
+    }
+    // ==========================
+    // 🧠 PLAYER COMMAND PHASE
+    // ==========================
+    private IEnumerator PlayerCommandPhase()
+    {
         chosenActions.Clear();
         playerChoiceIndex = 0;
-    }
-}
-// ==========================
-// 🧠 PLAYER COMMAND PHASE
-// ==========================
-private IEnumerator PlayerCommandPhase()
-{
-    chosenActions.Clear();
-    playerChoiceIndex = 0;
 
-    while (playerChoiceIndex < playerControllers.Count)
-    {
-        var currentPlayer = playerControllers[playerChoiceIndex];
-        var runtime = currentPlayer.GetRuntimeCharacter();
-
-        if (!runtime.IsAlive)
+        while (playerChoiceIndex < playerControllers.Count)
         {
-            playerChoiceIndex++;
-            continue;
-        }
+            var currentPlayer = playerControllers[playerChoiceIndex];
+            var runtime = currentPlayer.GetRuntimeCharacter();
 
-        bool actionChosen = false;
-        AttackData chosenAttack = null;
-        CharacterBattleController chosenTarget = null;
-
-        // Tell UI which player is choosing
-        uiManager.SetPlayerController(currentPlayer);
-        uiManager.BeginPlayerChoice((attack, target) =>
-        {
-            chosenAttack = attack;
-            chosenTarget = target;
-            actionChosen = true;
-        });
-
-        // Wait until the player picks an attack + target
-        yield return new WaitUntil(() => actionChosen);
-
-        // Determine default fallback target
-        if (chosenAttack == null || chosenTarget == null)
-        {
-            Debug.LogWarning($"⚠️ No action chosen for {currentPlayer.characterData.characterName}, defaulting to first available attack.");
-            var fallbackAttack = runtime.equippedAttacks.Count > 0 ? runtime.equippedAttacks[0] : null;
-
-            if (fallbackAttack != null)
+            if (!runtime.IsAlive)
             {
-                // Choose target based on heal or damage
-                CharacterBattleController fallbackTarget = fallbackAttack.healsTarget
-                    ? playerControllers.Find(p => p.GetRuntimeCharacter().IsAlive)
-                    : enemyControllers.Find(e => e.GetRuntimeCharacter().IsAlive);
-
-                if (fallbackTarget != null)
-                    chosenActions[currentPlayer] = (fallbackAttack, fallbackTarget);
+                playerChoiceIndex++;
+                continue;
             }
-        }
-        else
-        {
-            chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
+
+            bool actionChosen = false;
+            AttackData chosenAttack = null;
+            CharacterBattleController chosenTarget = null;
+
+            // Tell UI which player is choosing
+            uiManager.SetPlayerController(currentPlayer);
+            uiManager.BeginPlayerChoice((attack, target) =>
+            {
+                chosenAttack = attack;
+                chosenTarget = target;
+                actionChosen = true;
+            });
+
+            // Wait until the player picks an attack + target
+            yield return new WaitUntil(() => actionChosen);
+
+            // Determine default fallback target
+            if (chosenAttack == null || chosenTarget == null)
+            {
+                Debug.LogWarning($"⚠️ No action chosen for {currentPlayer.characterData.characterName}, defaulting to first available attack.");
+                var fallbackAttack = runtime.equippedAttacks.Count > 0 ? runtime.equippedAttacks[0] : null;
+
+                if (fallbackAttack != null)
+                {
+                    // Choose target based on heal or damage
+                    CharacterBattleController fallbackTarget = fallbackAttack.healsTarget
+                        ? playerControllers.Find(p => p.GetRuntimeCharacter().IsAlive)
+                        : enemyControllers.Find(e => e.GetRuntimeCharacter().IsAlive);
+
+                    if (fallbackTarget != null)
+                        chosenActions[currentPlayer] = (fallbackAttack, fallbackTarget);
+                }
+            }
+            else
+            {
+                chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
+            }
+
+            playerChoiceIndex++;
         }
 
-        playerChoiceIndex++;
+        // Small delay to ensure all UI input is finalized before proceeding
+        yield return new WaitForSeconds(0.2f);
     }
 
-    // Small delay to ensure all UI input is finalized before proceeding
-    yield return new WaitForSeconds(0.2f);
-}
-
-// ==========================
-// 🤖 ENEMY AI PHASE
-// ==========================
-private void EnemyCommandPhase()
-{
-    foreach (var enemy in enemyControllers)
+    // ==========================
+    // 🤖 ENEMY AI PHASE
+    // ==========================
+    private void EnemyCommandPhase()
     {
-        var runtime = enemy.GetRuntimeCharacter();
-        if (!runtime.IsAlive) continue;
+        foreach (var enemy in enemyControllers)
+        {
+            var runtime = enemy.GetRuntimeCharacter();
+            if (!runtime.IsAlive) continue;
 
-        var attacks = runtime.equippedAttacks;
-        if (attacks.Count == 0) continue;
+            var attacks = runtime.equippedAttacks;
+            if (attacks.Count == 0) continue;
 
-        var attack = attacks[Random.Range(0, attacks.Count)];
+            var attack = attacks[Random.Range(0, attacks.Count)];
 
-        // Determine target list based on move type
-        List<CharacterBattleController> possibleTargets;
-        
-        
-        if (attack.healsTarget)
+            // Determine target list based on move type
+            List<CharacterBattleController> possibleTargets;
+
+
+            if (attack.healsTarget)
             {
                 possibleTargets = enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive);
             }
@@ -221,20 +221,50 @@ private void EnemyCommandPhase()
                 possibleTargets = playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive);
             }
 
-        if (possibleTargets.Count == 0) continue;
+            if (possibleTargets.Count == 0) continue;
 
-        var target = possibleTargets[Random.Range(0, possibleTargets.Count)];
-        chosenActions[enemy] = (attack, target);
+            var target = possibleTargets[Random.Range(0, possibleTargets.Count)];
+            chosenActions[enemy] = (attack, target);
+        }
     }
-}
 
-// ==========================
-// ⚔️ ACTION RESOLUTION
-// ==========================
-private IEnumerator ResolveActions()
+    // ==========================
+    // ⚔️ ACTION RESOLUTION
+    // ==========================
+   private IEnumerator ResolveActions()
 {
+    // Build the turn order from whoever chose actions
     turnOrder = new List<CharacterBattleController>(chosenActions.Keys);
-    turnOrder.Sort((a, b) => b.GetRuntimeCharacter().Speed.CompareTo(a.GetRuntimeCharacter().Speed));
+
+    // Sort with priority moves first, then by speed descending
+    turnOrder.Sort((a, b) =>
+    {
+        // Safety: if one of the keys is missing in chosenActions (shouldn't happen),
+        // treat the missing one as lower priority/speed.
+        if (!chosenActions.ContainsKey(a) && !chosenActions.ContainsKey(b)) return 0;
+        if (!chosenActions.ContainsKey(a)) return 1;
+        if (!chosenActions.ContainsKey(b)) return -1;
+
+        var attackA = chosenActions[a].Item1;
+        var attackB = chosenActions[b].Item1;
+
+        bool priA = attackA != null && attackA.usePriority;
+        bool priB = attackB != null && attackB.usePriority;
+
+        // Priority moves go first
+        if (priA && !priB) return -1;
+        if (!priA && priB) return 1;
+
+        // If both same priority status, fallback to speed (descending)
+        int speedA = a.GetRuntimeCharacter()?.Speed ?? 0;
+        int speedB = b.GetRuntimeCharacter()?.Speed ?? 0;
+        int speedCompare = speedB.CompareTo(speedA);
+        if (speedCompare != 0) return speedCompare;
+
+        // Final deterministic tie-breaker: prefer players over enemies (optional)
+        // return (a.isPlayer && !b.isPlayer) ? -1 : (!a.isPlayer && b.isPlayer) ? 1 : 0;
+        return 0;
+    });
 
     foreach (var actor in turnOrder)
     {
@@ -249,9 +279,10 @@ private IEnumerator ResolveActions()
     }
 }
 
-// ==========================
-// 💥 ATTACK EXECUTION (Advanced version)
-// ==========================
+
+    // ==========================
+    // 💥 ATTACK EXECUTION (Advanced version)
+    // ==========================
 public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
 {
     if (attacker == null || target == null || attack == null)
@@ -269,28 +300,132 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
         return;
     }
 
-    // === Hardcoded Ashina Stance ===
-    if (attack.attackName == "Ashina Stance")
+    // --- PP / Usage check (PLAYER ONLY) ---
+    bool consumed = false;
+        if (attacker.isPlayer)
+        {
+            if (attack.currentUsage <= 0)
+            {
+                Debug.LogWarning($"⚠️ {attacker.characterData.characterName} tried to use {attack.attackName} but has no uses left!");
+                return;
+            }
+
+            // consume one use for player
+            attack.currentUsage--;
+            consumed = true;
+        }
+
+
+
+        // --- Hardcoded Cosmic Corruptor ---
+if (attack.attackName == "Cosmic Corruptor")
+{
+    // Ensure target is valid
+    if (target == null || !target.GetRuntimeCharacter().IsAlive)
     {
-        attacker.EnterStance(2);
-        Debug.Log($"🧘‍♂️ {attacker.characterData.characterName} uses Ashina Stance! No damage dealt, preparing for next move.");
+        Debug.LogWarning($"⚠️ Invalid target for Cosmic Corruptor!");
         return;
     }
 
-    // === Healing Move ===
-    if (attack.healsTarget)
-    {
-        if (!target.GetRuntimeCharacter().IsAlive)
+    var targetRuntime = target.GetRuntimeCharacter();
+
+    // Apply Burn and Poison
+    targetRuntime.ApplyStatusEffect(AttackEffectType.Burn, 3);
+    targetRuntime.ApplyStatusEffect(AttackEffectType.Poison, 3);
+
+    // Deal fixed 40 damage
+    int damageDealt = targetRuntime.TakeDamage(40, attacker.GetRuntimeCharacter());
+    Debug.Log($"☄️ {attacker.characterData.characterName} used Cosmic Corruptor on {target.characterData.characterName}, dealing {damageDealt} damage and applying Burn & Poison for 3 turns!");
+
+    return; // exit PerformAttack since this move is fully handled
+}
+
+
+
+
+        // === Hardcoded Ashina Stance ===
+        if (attack.attackName == "Ashina Stance")
         {
-            Debug.LogWarning("⚠️ Invalid target for healing!");
+            attacker.EnterStance(2);
+            Debug.Log($"🧘‍♂️ {attacker.characterData.characterName} uses Ashina Stance! No damage dealt, preparing for next move.");
             return;
         }
 
-        int healAmount = Mathf.RoundToInt(attack.power + runtime.Attack * 0.5f);
-        target.GetRuntimeCharacter().Heal(healAmount);
-        Debug.Log($"💚 {attacker.characterData.characterName} healed {target.characterData.characterName} for {healAmount} HP using {attack.attackName}!");
+        if (attack.attackName == "Assassinate")
+        {
+            // Make sure the target is valid
+            if (target == null || !target.GetRuntimeCharacter().IsAlive)
+            {
+                Debug.LogWarning($"⚠️ Invalid target for Assassinate!");
+                return;
+            }
+
+            var targetRuntime = target.GetRuntimeCharacter();
+            var attackerRuntime = attacker.GetRuntimeCharacter();
+
+            // Apply the "mark" status
+            targetRuntime.ApplyTemporaryMark(attackerRuntime, 2.5f, 1); // duration = 1 turn, multiplier = 2.5x
+
+            Debug.Log($"🎯 {attacker.characterData.characterName} marked {target.characterData.characterName} for Assassination!");
+            return;
+        }
+
+if (attack.attackName == "Purgatory")
+{
+    var attackerRuntime = attacker.GetRuntimeCharacter();
+    var targetRuntime = target.GetRuntimeCharacter();
+
+    if (!targetRuntime.IsAlive)
+    {
+        Debug.LogWarning("⚠️ Invalid target for Purgatory!");
         return;
     }
+
+    // HP-based scaling: lower HP = more power
+    float hpRatio = Mathf.Clamp01((float)attackerRuntime.currentHP / attackerRuntime.MaxHP);
+    float damageMultiplier = 1f + (1f - hpRatio) * 2f; // up to 3x at 1 HP
+
+    int baseDamage = Mathf.Max(1, attack.power + attackerRuntime.Attack - targetRuntime.Defense / 2);
+    int finalDamage = Mathf.RoundToInt(baseDamage * damageMultiplier);
+
+    int damageDealt = targetRuntime.TakeDamage(finalDamage, attackerRuntime);
+
+    Debug.Log($"🔥 {attacker.characterData.characterName} unleashes PURGATORY! ({Mathf.RoundToInt(damageMultiplier * 100f)}% power)");
+    Debug.Log($"💥 {attacker.characterData.characterName} dealt {damageDealt} damage to {target.characterData.characterName}!");
+
+    // Optional: Life drain effect
+    if (attack.isLifeLeech)
+    {
+        int healAmount = Mathf.RoundToInt(damageDealt * attack.lifeLeechPercent);
+        attackerRuntime.Heal(healAmount);
+        Debug.Log($"🩸 {attacker.characterData.characterName} absorbed {healAmount} HP from Purgatory!");
+    }
+
+    return;
+}
+
+
+        // === Healing Move ===
+        if (attack.healsTarget)
+        {
+            if (!target.GetRuntimeCharacter().IsAlive)
+            {
+                // Refund usage only if player consumed it
+                if (consumed && attacker.isPlayer)
+                {
+                    attack.currentUsage++;
+                    consumed = false;
+                }
+
+                Debug.LogWarning("⚠️ Invalid target for healing!");
+                return;
+            }
+
+            int healAmount = Mathf.RoundToInt(attack.power + runtime.Attack * 0.5f);
+            target.GetRuntimeCharacter().Heal(healAmount);
+            Debug.Log($"💚 {attacker.characterData.characterName} healed {target.characterData.characterName} for {healAmount} HP using {attack.attackName}!");
+            return;
+        }
 
     // === Non-Damage / Setup Moves / Buffs ===
     if (attack.isNonDamageMove)
@@ -317,7 +452,7 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
         }
         else if (attack.affectsSelf)
         {
-            // Auto-buff self
+            // Auto-buff self (UI auto-target behavior preserved)
             buffTargets.Add(attacker);
         }
         else
@@ -360,13 +495,20 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
     }
 
     // --- Apply damage to targets ---
+    bool appliedSelfEffects = false; // ensure self effects only apply once (important for AoE)
     foreach (var tgt in targets)
     {
         if (!tgt.GetRuntimeCharacter().IsAlive) continue;
 
-        int diceRoll = (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
-            ? Random.Range(runtime.nextDiceMin, runtime.nextDiceMax + 1)
-            : Random.Range(attack.diceMin, attack.diceMax + 1);
+            int diceRoll = (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
+                ? Random.Range(runtime.nextDiceMin, runtime.nextDiceMax + 1)
+                : Random.Range(attack.diceMin, attack.diceMax + 1);
+        
+        if (attack.attackName == "Showdown")
+{
+    attack.power = (Random.value <= 0.5f) ? 100 : 20;
+    Debug.Log($"🎲 {attacker.characterData.characterName} uses Showdown! Power rolled: {attack.power}");
+}
 
         int baseDamage = Mathf.Max(1, attack.power + runtime.Attack - tgt.GetRuntimeCharacter().Defense / 2);
 
@@ -401,7 +543,7 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
 
         int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
 
-        // === Fallen enemies scaling (Vengeance-like) ===
+        // === Fallen enemies scaling (Mortal-like) ===
         if (attack.scalesWithFallenEnemies)
         {
             int fallenEnemies = enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
@@ -410,7 +552,20 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
             Debug.Log($"🔥 {attacker.characterData.characterName}'s {attack.attackName} scaled with {fallenEnemies} fallen enemies! New damage: {finalDamage}");
         }
 
-        int damageDealt = tgt.TakeDamage(finalDamage);
+        // === Fallen allies scaling (Vengeance-like) ===
+        if (attack.scalesWithFallenAllies)
+        {
+            int fallenAllies = attacker.isPlayer
+                ? playerControllers.FindAll(p => !p.GetRuntimeCharacter().IsAlive).Count
+                : enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
+
+            float alliesMultiplier = 1f + fallenAllies * attack.fallenAlliesMultiplier;
+            finalDamage = Mathf.RoundToInt(finalDamage * alliesMultiplier);
+            Debug.Log($"🔥 {attacker.characterData.characterName}'s {attack.attackName} scaled with {fallenAllies} fallen allies! New damage: {finalDamage}");
+        }
+
+        int damageDealt = tgt.GetRuntimeCharacter().TakeDamage(finalDamage, runtime);
+;
 
         string hitType = multiplier > 1f ? "💥 Strong Hit!" : multiplier < 1f ? "🩹 Weak Hit!" : "⚔️ Normal Hit!";
         Debug.Log($"🎲 Dice Roll: {diceRoll} → {hitType}");
@@ -425,9 +580,32 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
         }
 
         // === Optional buffs/debuffs applied to caster or self-targeting ===
-        if (attack.affectsSelf || attack.manualBuffTargetSelection)
+        // Use the new applyEffectsToSelf flag so UI auto-self-targeting (affectsSelf) remains unchanged.
+        if (attack.applyEffectsToSelf && !attack.manualBuffTargetSelection)
         {
-            // Already applied above in non-damage section
+            if (!appliedSelfEffects)
+            {
+                // Apply buffs to the attacker runtime
+                if (attack.buffAttack) runtime.ModifyAttack(attack.buffAttackAmount);
+                if (attack.buffDefense) runtime.ModifyDefense(attack.buffDefenseAmount);
+                if (attack.buffSpeed) runtime.ModifySpeed(attack.buffSpeedAmount);
+
+                // Apply debuffs to the attacker runtime
+                if (attack.debuffAttack) runtime.ModifyAttack(-attack.debuffAttackAmount);
+                if (attack.debuffDefense) runtime.ModifyDefense(-attack.debuffDefenseAmount);
+                if (attack.debuffSpeed) runtime.ModifySpeed(-attack.debuffSpeedAmount);
+
+                // Apply status effect to self if configured
+                if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                    runtime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+
+                appliedSelfEffects = true;
+                Debug.Log($"🔁 {attacker.characterData.characterName} received self-effects from {attack.attackName}.");
+            }
+        }
+        else if (attack.manualBuffTargetSelection)
+        {
+            // Manual buff selection assumed handled in the non-damage branch (do nothing here).
         }
         else
         {
@@ -449,41 +627,42 @@ public void PerformAttack(CharacterBattleController attacker, CharacterBattleCon
         if (!tgt.GetRuntimeCharacter().IsAlive && attacker.isPlayer && expSystem != null)
             expSystem.GrantXP(tgt.characterData);
     }
+
+    // Note: consumed remains true for players (unless refunded earlier); no extra action needed here.
 }
 
 
-
-// ==========================
-// ✨ HELPERS
-// ==========================
-private IEnumerator FadeAndRemove(CharacterBattleController target)
-{
-    var sr = target.GetComponent<SpriteRenderer>();
-    var selector = target.GetComponent<TargetSelector>();
-    if (selector != null)
-        selector.Highlight(false);
-
-    if (sr != null)
+    // ==========================
+    // ✨ HELPERS
+    // ==========================
+    private IEnumerator FadeAndRemove(CharacterBattleController target)
     {
-        Color c = sr.color;
-        for (float t = 0; t < 1f; t += Time.deltaTime)
+        var sr = target.GetComponent<SpriteRenderer>();
+        var selector = target.GetComponent<TargetSelector>();
+        if (selector != null)
+            selector.Highlight(false);
+
+        if (sr != null)
         {
-            c.a = Mathf.Lerp(1f, 0f, t);
-            sr.color = c;
-            yield return null;
+            Color c = sr.color;
+            for (float t = 0; t < 1f; t += Time.deltaTime)
+            {
+                c.a = Mathf.Lerp(1f, 0f, t);
+                sr.color = c;
+                yield return null;
+            }
         }
+
+        Destroy(target.gameObject);
     }
 
-    Destroy(target.gameObject);
-}
-
-private bool AreAllDead(List<CharacterBattleController> list)
-{
-    foreach (var c in list)
-        if (c.GetRuntimeCharacter().IsAlive)
-            return false;
-    return true;
-}
+    private bool AreAllDead(List<CharacterBattleController> list)
+    {
+        foreach (var c in list)
+            if (c.GetRuntimeCharacter().IsAlive)
+                return false;
+        return true;
+    }
 
     private IEnumerator HandleVictory(List<CharacterBattleController> defeatedEnemies)
     {
@@ -503,7 +682,14 @@ private bool AreAllDead(List<CharacterBattleController> list)
         Debug.Log("--------------------------------------------------------");
     }
 
+    private IEnumerator PerformAssassinate(CharacterRuntime attacker, CharacterRuntime target, AttackData attack)
+{
+    if (target == null) yield break;
 
+    Debug.Log($"🩸 {attacker.baseData.characterName} marks {target.baseData.characterName} for assassination!");
+    target.markedBy = attacker;
+    target.markDuration = 1; // lasts one turn only
 
-
+    yield return new WaitForSeconds(0.5f);
+}
 }

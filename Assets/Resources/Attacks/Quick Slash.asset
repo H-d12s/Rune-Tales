@@ -10,19 +10,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
-  m_Name: Poisoned Tip
+  m_Name: Quick Slash
   m_EditorClassIdentifier: 
-  attackName: Poisoned Tip
+  attackName: Quick Slash
   description: 
   icon: {fileID: 0}
-  power: 20
-  maxUsage: 15
-  chargeValue: 5
+  power: 12
+  maxUsage: 25
+  chargeValue: 0
   isAoE: 0
   diceMin: 1
   diceMax: 10
-  effectType: 2
-  effectChance: 0.703
+  effectType: 0
+  effectChance: 1
   effectDuration: 2
   isLifeLeech: 0
   lifeLeechPercent: 0.5
@@ -40,7 +40,7 @@ MonoBehaviour:
   buffSpeedAmount: 0
   debuffSpeed: 0
   debuffSpeedAmount: 0
-  usePriority: 0
+  usePriority: 1
   scalesWithFallenAllies: 0
   fallenAlliesMultiplier: 1
   scalesWithFallenEnemies: 0
@@ -56,5 +56,5 @@ MonoBehaviour:
   nextAttackMultiplier: 1
   modifiesNextDice: 0
   nextDiceMin: 1
-  nextDiceMax: 20
-  currentUsage: 15
+  nextDiceMax: 10
+  currentUsage: 25

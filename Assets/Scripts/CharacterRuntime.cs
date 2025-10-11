@@ -12,6 +12,9 @@ public class CharacterRuntime
     public int currentXP;
     public int xpToNextLevel;
 
+    public bool hasRevivedOnce = false;
+
+
     // --- Runtime copies of stats (modifiable at runtime) ---
     public int runtimeHP;
     public int runtimeAttack;
@@ -36,6 +39,8 @@ public class CharacterRuntime
     public int Attack => Mathf.Max(1, runtimeAttack + attackModifier);
     public int Defense => Mathf.Max(1, runtimeDefense + defenseModifier);
     public int Speed => Mathf.Max(1, runtimeSpeed + speedModifier);
+
+    
 
     public StatusEffectManager statusEffectManager;
     public CharacterBattleController controller;
@@ -81,14 +86,52 @@ public class CharacterRuntime
     }
 
     // --- Damage / Heal ---
-    public void TakeDamage(int damage)
+ public int TakeDamage(int damage, CharacterRuntime attacker = null)
+{
+    // --- Assassinate mark bonus ---
+    if (attacker != null && markedBy == attacker && markDuration > 0)
     {
-        damage = Mathf.Max(1, damage);
-        currentHP = Mathf.Max(0, currentHP - damage);
+        Debug.Log($"💀 {baseData.characterName} is marked by {attacker.baseData.characterName}! Taking {markDamageMultiplier}x damage.");
+        damage = Mathf.RoundToInt(damage * markDamageMultiplier);
 
-        if (currentHP <= 0)
-            Debug.Log($"☠️ {baseData.characterName} has been defeated!");
+        // Consume the mark (it only applies once)
+        markDuration--;
+        if (markDuration <= 0)
+        {
+            markedBy = null;
+            markDamageMultiplier = 1f;
+        }
     }
+
+    // --- Normal damage application ---
+    damage = Mathf.Max(1, damage);
+    currentHP = Mathf.Max(0, currentHP - damage);
+
+    // --- Rebirth passive (Pyromancer only) ---
+    if (currentHP <= 0)
+    {
+        if (baseData.characterName == "Roy" && !hasRevivedOnce)
+        {
+            hasRevivedOnce = true;
+
+            // Revive with 40% HP
+            int reviveHP = Mathf.RoundToInt(MaxHP * 0.4f);
+            currentHP = reviveHP;
+
+            // Increase Attack by 20%
+            int attackBoost = Mathf.RoundToInt(baseData.baseAttack * 0.2f);
+            runtimeAttack += attackBoost;
+
+            Debug.Log($"🔥 {baseData.characterName} resurrects in flames with {reviveHP} HP and +20% Attack!");
+            return damage; // Damage still counts as dealt
+        }
+
+        // If Rebirth was already used, die normally
+        Debug.Log($"☠️ {baseData.characterName} has been defeated!");
+    }
+
+    return damage;
+}
 
     public void Heal(int amount)
     {
@@ -199,6 +242,49 @@ public class CharacterRuntime
         if (statusEffectManager != null && controller != null)
             statusEffectManager.TickEffects(controller);
     }
+
+public CharacterRuntime markedBy = null;
+public float markDamageMultiplier = 1f;
+public int markDuration = 0;
+
+public void ApplyTemporaryMark(CharacterRuntime attacker, float multiplier, int duration)
+{
+    markedBy = attacker;
+    markDamageMultiplier = multiplier;
+    markDuration = duration;
+    Debug.Log($"🔪 {baseData.characterName} is marked for assassination by {attacker.baseData.characterName} for {duration} turn(s)!");
+}
+
+public float ConsumeMarkIfApplicable(CharacterRuntime attacker)
+{
+    if (markedBy == attacker && markDuration > 0)
+    {
+        markDuration--;
+        if (markDuration <= 0)
+        {
+            // Remove mark after effect triggers once
+            markedBy = null;
+            float multiplier = markDamageMultiplier;
+            markDamageMultiplier = 1f;
+            return multiplier;
+        }
+        return markDamageMultiplier;
+    }
+    return 1f; // no extra damage
+}
+
+public void DecrementMarkDuration()
+{
+    if (markDuration > 0)
+    {
+        markDuration--;
+        if (markDuration <= 0)
+        {
+            markedBy = null;
+            markDamageMultiplier = 1f;
+        }
+    }
+}
 
     // --- Helper ---
     public bool IsAlive => currentHP > 0;

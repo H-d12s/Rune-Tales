@@ -49,7 +49,9 @@ MonoBehaviour:
   hpDamageMultiplier: 1
   conditionalStanceMultiplier: 0
   stanceMultiplier: 1
-  affectsSelf: 1
+  affectsSelf: 0
+  manualBuffTargetSelection: 0
+  applyEffectsToSelf: 1
   modifiesNextAttack: 0
   nextAttackMultiplier: 1
   modifiesNextDice: 0

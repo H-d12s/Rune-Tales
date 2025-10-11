@@ -10,20 +10,20 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
-  m_Name: Poisoned Tip
+  m_Name: Lightning Catcher
   m_EditorClassIdentifier: 
-  attackName: Poisoned Tip
+  attackName: Lightning Catcher
   description: 
   icon: {fileID: 0}
-  power: 20
-  maxUsage: 15
-  chargeValue: 5
+  power: 50
+  maxUsage: 25
+  chargeValue: 0
   isAoE: 0
   diceMin: 1
   diceMax: 10
-  effectType: 2
-  effectChance: 0.703
-  effectDuration: 2
+  effectType: 1
+  effectChance: 0.5
+  effectDuration: 1
   isLifeLeech: 0
   lifeLeechPercent: 0.5
   isNonDamageMove: 0
@@ -56,5 +56,5 @@ MonoBehaviour:
   nextAttackMultiplier: 1
   modifiesNextDice: 0
   nextDiceMin: 1
-  nextDiceMax: 20
-  currentUsage: 15
+  nextDiceMax: 10
+  currentUsage: 25

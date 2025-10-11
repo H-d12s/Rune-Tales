@@ -20,9 +20,9 @@ MonoBehaviour:
   baseDefense: 20
   baseSpeed: 12
   learnableAttacks:
-  - attack: {fileID: 11400000, guid: 8984b8b81d3685d46a99a41fc018f76b, type: 2}
+  - attack: {fileID: 11400000, guid: a8c94e4527fa8c5488ee2f503354a756, type: 2}
     levelToLearn: 1
-  - attack: {fileID: 11400000, guid: 0a91992b12d52d64d86dcd0c24cc23cc, type: 2}
+  - attack: {fileID: 11400000, guid: 8953240f8037fe94791db9b9fe078bfc, type: 2}
     levelToLearn: 1
   - attack: {fileID: 11400000, guid: 0b5f144d4663b884d8cdcadd13babf7b, type: 2}
     levelToLearn: 2
@@ -32,7 +32,7 @@ MonoBehaviour:
     levelToLearn: 20
   - attack: {fileID: 11400000, guid: 0b5f144d4663b884d8cdcadd13babf7b, type: 2}
     levelToLearn: 25
-  - attack: {fileID: 11400000, guid: 25e03b0f4093e8c459878cb213c02cd4, type: 2}
+  - attack: {fileID: 0}
     levelToLearn: 30
   ultimateSkill: {fileID: 0}
   expReward: 50

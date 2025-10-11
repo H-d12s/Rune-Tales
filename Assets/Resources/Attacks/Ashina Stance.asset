@@ -36,14 +36,22 @@ MonoBehaviour:
   debuffAttackAmount: 0
   debuffDefense: 0
   debuffDefenseAmount: 0
-  speedModifier: 0
+  buffSpeed: 0
+  buffSpeedAmount: 0
+  debuffSpeed: 0
+  debuffSpeedAmount: 0
   usePriority: 0
   scalesWithFallenAllies: 0
   fallenAlliesMultiplier: 1
+  scalesWithFallenEnemies: 0
+  fallenEnemiesMultiplier: 1
   scalesWithUserHP: 0
   hpDamageMultiplier: 1
   conditionalStanceMultiplier: 0
   stanceMultiplier: 1
+  affectsSelf: 1
+  manualBuffTargetSelection: 0
+  applyEffectsToSelf: 0
   modifiesNextAttack: 0
   nextAttackMultiplier: 1
   modifiesNextDice: 0

@@ -95,48 +95,56 @@ public class BattleUIManager : MonoBehaviour
         }
     }
 
-  private void OnAttackChosen(AttackData attack)
-{
-    if (attack == null) return;
-
-    selectedAttack = attack;
-    isSelectingTarget = false; // default
-
-    // --- Auto-apply to self ---
-    if (attack.affectsSelf && !attack.manualBuffTargetSelection)
+    private void OnAttackChosen(AttackData attack)
     {
-        if (!attack.isAoE)
+        if (attack == null) return;
+
+        selectedAttack = attack;
+        isSelectingTarget = false; // default
+
+        // --- Auto-apply to self ---
+        if (attack.affectsSelf && !attack.manualBuffTargetSelection)
         {
-            // Single target self
-            Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on self automatically!");
-            onAttackConfirmed?.Invoke(selectedAttack, playerController);
-        }
-        else
-        {
-            // AoE self/allies
-            Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on all allies automatically!");
-            var allies = FindObjectsOfType<CharacterBattleController>();
-            foreach (var ally in allies)
+            if (!attack.isAoE)
             {
-                if (ally.isPlayer && ally.GetRuntimeCharacter().IsAlive)
+                // Single target self
+                Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on self automatically!");
+                onAttackConfirmed?.Invoke(selectedAttack, playerController);
+
+                // Hide UI now that the player has confirmed this attack
+                HideAll();
+
+                selectedAttack = null;
+                return;
+            }
+            else
+            {
+                // AoE self/allies
+                Debug.Log($"🌀 {playerRuntime.baseData.characterName} uses {attack.attackName} on all allies automatically!");
+                var allies = FindObjectsOfType<CharacterBattleController>();
+                foreach (var ally in allies)
                 {
-                    onAttackConfirmed?.Invoke(selectedAttack, ally);
+                    if (ally.isPlayer && ally.GetRuntimeCharacter().IsAlive)
+                    {
+                        onAttackConfirmed?.Invoke(selectedAttack, ally);
+                    }
                 }
+
+                // Hide UI after firing all confirmations
+                HideAll();
+
+                selectedAttack = null;
+                return;
             }
         }
 
-        selectedAttack = null;
-        return;
+        // Otherwise, wait for player to select a target
+        isSelectingTarget = true;
+        if (attack.healsTarget || attack.manualBuffTargetSelection)
+            Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an ally target...");
+        else
+            Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an enemy target...");
     }
-
-    // Otherwise, wait for player to select a target
-    isSelectingTarget = true;
-    if (attack.healsTarget || attack.manualBuffTargetSelection)
-        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an ally target...");
-    else
-        Debug.Log($"🌀 {playerRuntime.baseData.characterName} chose {attack.attackName}! Select an enemy target...");
-}
-
 
     // Target Selection
     public void SetTarget(CharacterBattleController target)
@@ -169,6 +177,7 @@ public class BattleUIManager : MonoBehaviour
         var selector = target.GetComponent<TargetSelector>();
         if (selector != null) selector.Highlight(false);
 
+        // Hide UI once the player has confirmed a target
         HideAll();
         selectedAttack = null;
     }
@@ -185,9 +194,9 @@ public class BattleUIManager : MonoBehaviour
     }
 
     public AttackData SelectedAttack()
-{
-    return selectedAttack;
-}
+    {
+        return selectedAttack;
+    }
 
     public void ShowMainActions()
     {
