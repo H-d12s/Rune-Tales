@@ -5,6 +5,9 @@ using UnityEngine.UI;
 
 public class BattleManager : MonoBehaviour
 {
+    [Header("Battle Messages")]
+    public BattleMessageUI messageUI; // assign in inspector
+
     [Header("Visuals")]
     public Image backgroundImageUI;       // assign from Canvas
     private RegionData currentRegion;     // stores current region data
@@ -529,8 +532,11 @@ private Dictionary<CharacterBattleController, HealthbarController> healthbarMap 
     // Apply damage to runtime
     targetRuntime.TakeDamage(finalDamage);
 
-    Debug.Log($"⚔️ {attacker.characterData.characterName} used {attack.attackName}! 🎲 {dice} → {hitType}");
+        Debug.Log($"⚔️ {attacker.characterData.characterName} used {attack.attackName}! Die Roll: {dice} → {hitType}");
+    yield return StartCoroutine(ShowBattleMessage($"{attacker.characterData.characterName} used {attack.attackName} 🎲 {dice} → {hitType}!"));
+
     Debug.Log($"💥 {target.characterData.characterName} took {finalDamage} damage (HP: {targetRuntime.currentHP}/{targetRuntime.runtimeHP})");
+yield return StartCoroutine(ShowBattleMessage($"{target.characterData.characterName} took damage!"));
 
     // small hit shake (run in parallel)
     StartCoroutine(HitShake(target.transform));
@@ -551,7 +557,9 @@ private Dictionary<CharacterBattleController, HealthbarController> healthbarMap 
     // Handle death and XP like before
     if (!targetRuntime.IsAlive)
     {
-        Debug.Log($"💀 {target.characterData.characterName} fainted!");
+            Debug.Log($"💀 {target.characterData.characterName} fainted!");
+        yield return StartCoroutine(ShowBattleMessage($"{target.characterData.characterName} fainted!"));
+
         if (attacker.isPlayer && expSystem != null)
             expSystem.GrantXP(target.characterData);
 
@@ -570,6 +578,7 @@ private Dictionary<CharacterBattleController, HealthbarController> healthbarMap 
         if (isRecruitmentBattle && recruitTarget == target)
         {
             Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
+            yield return StartCoroutine(ShowBattleMessage($"Recruit {recruitTarget.characterData.characterName} was defeated and will not return."));
             if (FindObjectOfType<RecruitmentManager>() != null)
                 FindObjectOfType<RecruitmentManager>().ResetRecruitment();
             recruitTarget = null;
@@ -644,7 +653,9 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
 
    private IEnumerator HandleVictory(List<CharacterBattleController> defeatedEnemies)
 {
-    Debug.Log("🏆 Victory! All enemies defeated!");
+        Debug.Log("🏆 Victory! All enemies defeated!");
+    yield return StartCoroutine(ShowBattleMessage("Victory! All enemies defeated!"));
+
     battleActive = false;
 
     foreach (var enemy in defeatedEnemies)
@@ -707,55 +718,59 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
         TryPersuade();
     }
 
-    public void TryPersuade()
+   public IEnumerator TryPersuade()
+{
+    if (!isRecruitmentBattle || recruitTarget == null)
     {
-        if (!isRecruitmentBattle || recruitTarget == null)
-        {
-            Debug.Log("❌ No recruitment target!");
-            return;
-        }
+        Debug.Log("❌ No recruitment target!");
+        yield break;
+    }
 
+    if (persuadeAttempts >= maxPersuadeAttempts)
+    {
+        Debug.Log("😤 You've used all your persuasion attempts!");
+        yield return StartCoroutine(ShowBattleMessage("You've used all your persuasion attempts!"));
+        StartCoroutine(FinishRecruitment(false));
+        yield break;
+    }
+
+    persuadeAttempts++;
+
+    var targetRuntime = recruitTarget.GetRuntimeCharacter();
+    float hpRatio = (float)targetRuntime.currentHP / targetRuntime.runtimeHP; // 0..1
+
+    float persuasionChance = hpRatio switch
+    {
+        <= 0.02f => 0.99f,
+        <= 0.10f => 0.85f,
+        <= 0.20f => 0.65f,
+        <= 0.30f => 0.45f,
+        <= 0.50f => 0.30f,
+        <= 0.70f => 0.20f,
+        <= 0.80f => 0.15f,
+        <= 0.90f => 0.10f,
+        <= 0.99f => 0.07f,
+        _ => 0.05f
+    };
+
+    Debug.Log($"🎯 Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%");
+    yield return StartCoroutine(ShowBattleMessage($"Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%"));
+    if (Random.value < persuasionChance)
+    {
+        Debug.Log("💖 Recruitment successful!");
+        yield return StartCoroutine(ShowBattleMessage("Recruitment successful!"));
+        StartCoroutine(HandleRecruitmentSuccess());
+    }
+    else
+    {
+        Debug.Log("💬 Recruitment failed this attempt.");
         if (persuadeAttempts >= maxPersuadeAttempts)
         {
-            Debug.Log("😤 You've used all your persuasion attempts!");
+            Debug.Log("😔 No attempts left — recruit lost interest.");
             StartCoroutine(FinishRecruitment(false));
-            return;
-        }
-
-        persuadeAttempts++;
-
-        var targetRuntime = recruitTarget.GetRuntimeCharacter();
-        float hpRatio = (float)targetRuntime.currentHP / targetRuntime.runtimeHP; // 0..1
-
-        float persuasionChance;
-        if (hpRatio <= 0.02f) persuasionChance = 0.99f;
-        else if (hpRatio <= 0.10f) persuasionChance = 0.85f;
-        else if (hpRatio <= 0.20f) persuasionChance = 0.65f;
-        else if (hpRatio <= 0.30f) persuasionChance = 0.45f;
-        else if (hpRatio <= 0.50f) persuasionChance = 0.30f;
-        else if (hpRatio <= 0.70f) persuasionChance = 0.20f;
-        else if (hpRatio <= 0.80f) persuasionChance = 0.15f;
-        else if (hpRatio <= 0.90f) persuasionChance = 0.10f;
-        else if (hpRatio <= 0.99f) persuasionChance = 0.07f;
-        else persuasionChance = 0.05f;
-
-        Debug.Log($"🎯 Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%");
-
-        if (Random.value < persuasionChance)
-        {
-            Debug.Log("💖 Recruitment successful!");
-            StartCoroutine(HandleRecruitmentSuccess());
-        }
-        else
-        {
-            Debug.Log("💬 Recruitment failed this attempt.");
-            if (persuadeAttempts >= maxPersuadeAttempts)
-            {
-                Debug.Log("😔 No attempts left — recruit lost interest.");
-                StartCoroutine(FinishRecruitment(false));
-            }
         }
     }
+}
 
     // ==========================================================
     // Recruit success/failure flows
@@ -786,6 +801,7 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
         {
             PersistentPlayerData.Instance.UpdateFromRuntime(recruitRuntime);
             Debug.Log($"🎉 {recruitRuntime.baseData.characterName} joined your team!");
+            yield return StartCoroutine(ShowBattleMessage($"{recruitRuntime.baseData.characterName} joined your team!"));
             PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
             yield return StartCoroutine(FinishRecruitment(true));
             yield break;
@@ -793,6 +809,7 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
         else
         {
             Debug.Log("⚠️ Team full — press 1, 2 or 3 to replace a member.");
+            yield return StartCoroutine(ShowBattleMessage($"Team full — press 1, 2 or 3 to replace a member."));
             bool replaced = false;
             while (!replaced)
             {
@@ -820,7 +837,7 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
     if (old == null || newRuntime == null) return false;
 
     Debug.Log($"🔁 Replacing {old.baseData.characterName} with {newRuntime.baseData.characterName}...");
-
+     
     // ✅ Use your final ReplaceCharacter from PersistentPlayerData
     PersistentPlayerData.Instance.ReplaceCharacter(old.baseData.characterName, newRuntime);
 
@@ -924,7 +941,7 @@ private void CleanupOldInstances()
 }
 
 
-  
+
 
     // Background fading helper
     private IEnumerator FadeRegionBackground(RegionData newRegion)
@@ -966,5 +983,17 @@ private void CleanupOldInstances()
 
         backgroundImageUI.color = endColor;
     }
+    private IEnumerator ShowBattleMessage(string text)
+{
+    if (messageUI != null)
+    {
+        yield return StartCoroutine(messageUI.ShowMessage(text));
+    }
+    else
+    {
+        Debug.LogWarning("⚠️ messageUI not assigned!");
+    }
+}
+
     
 }
