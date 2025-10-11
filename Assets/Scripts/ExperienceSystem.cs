@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -6,6 +7,7 @@ using UnityEngine;
 /// Handles XP gain, level-ups, and stat growth for each character class.
 /// Works with PersistentPlayerData to ensure progress carries across encounters.
 /// Prompts for move replacements are queued during battle and processed after victory.
+/// Exposes events and getters so UI (Healthbar/XP) can read stored XP and subscribe.
 /// </summary>
 public class ExperienceSystem : MonoBehaviour
 {
@@ -27,6 +29,66 @@ public class ExperienceSystem : MonoBehaviour
     // Queue of (runtime, level) for each level the runtime reached during this battle
     private List<(CharacterRuntime runtime, int level)> pendingLevelUpQueue = new List<(CharacterRuntime, int)>();
 
+    // Event fired when stored XP for a character changes:
+    // (characterName, storedXP)
+    public event Action<string, int> OnXPUpdated;
+
+    #region Public API helpers
+
+    /// <summary>
+    /// Returns stored (carried) XP for a character (XP toward next level).
+    /// </summary>
+    public int GetStoredXPFor(string characterName)
+    {
+        if (string.IsNullOrEmpty(characterName)) return 0;
+        if (PlayerXPData.TryGetValue(characterName, out int xp)) return xp;
+        return 0;
+    }
+
+    /// <summary>
+    /// XP required to reach the next level from currentLevel.
+    /// currentLevel is 1-based (level 1 -> XP to reach level 2).
+    /// </summary>
+    public int GetXPToNextLevel(int currentLevel)
+    {
+        // clamp to at least level 1
+        int lvl = Mathf.Max(1, currentLevel);
+        return Mathf.RoundToInt(baseXPRequired * Mathf.Pow(growthRate, lvl - 1));
+    }
+
+    /// <summary>
+    /// Called by BattleManager after victory to process all queued level-up move prompts
+    /// in order, pausing the game until the player finishes each prompt.
+    /// </summary>
+    public IEnumerator ProcessPendingMovePrompts()
+    {
+        // Guard
+        if (pendingLevelUpQueue == null || pendingLevelUpQueue.Count == 0)
+            yield break;
+
+        isProcessingLevelUps = true;
+
+        // Iterate over a copy so other code can safely modify the original list if needed
+        var queueCopy = new List<(CharacterRuntime runtime, int level)>(pendingLevelUpQueue);
+
+        foreach (var entry in queueCopy)
+        {
+            var runtime = entry.runtime;
+            var level = entry.level;
+            if (runtime == null) continue;
+
+            // Process moves that unlocked *exactly* at this level
+            yield return StartCoroutine(LearnNewAttacksAtLevelCoroutine(runtime, level));
+        }
+
+        // Clear queue after processing
+        pendingLevelUpQueue.Clear();
+        isProcessingLevelUps = false;
+        yield break;
+    }
+
+    #endregion
+
     public void Initialize(List<CharacterBattleController> playerTeam)
     {
         playerControllers = playerTeam;
@@ -38,6 +100,7 @@ public class ExperienceSystem : MonoBehaviour
             foreach (var controller in playerControllers)
             {
                 var runtime = controller.GetRuntimeCharacter();
+                if (runtime == null) continue;
                 if (PlayerXPData.ContainsKey(runtime.baseData.characterName))
                     Debug.Log($"♻️ Restored XP for {runtime.baseData.characterName}: {PlayerXPData[runtime.baseData.characterName]} XP");
             }
@@ -72,14 +135,20 @@ public class ExperienceSystem : MonoBehaviour
         if (runtime == null || runtime.currentLevel >= maxLevel)
             return;
 
-        if (!PlayerXPData.ContainsKey(runtime.baseData.characterName))
-            PlayerXPData[runtime.baseData.characterName] = 0;
+        string name = runtime.baseData.characterName;
+        if (string.IsNullOrEmpty(name)) return;
 
-        PlayerXPData[runtime.baseData.characterName] += amount;
-        int currentXP = PlayerXPData[runtime.baseData.characterName];
+        if (!PlayerXPData.ContainsKey(name))
+            PlayerXPData[name] = 0;
+
+        PlayerXPData[name] += amount;
+        int currentXP = PlayerXPData[name];
         int xpToNext = GetXPToNextLevel(runtime.currentLevel);
 
-        Debug.Log($"🧮 {runtime.baseData.characterName}: {currentXP}/{xpToNext} XP");
+        // Fire XP update event so UI can update
+        OnXPUpdated?.Invoke(name, currentXP);
+
+        Debug.Log($"🧮 {name}: {currentXP}/{xpToNext} XP");
 
         while (currentXP >= xpToNext && runtime.currentLevel < maxLevel)
         {
@@ -88,8 +157,8 @@ public class ExperienceSystem : MonoBehaviour
             xpToNext = GetXPToNextLevel(runtime.currentLevel);
 
             ApplyStatGrowth(runtime);
-            Debug.Log($"⬆️ {runtime.baseData.characterName} leveled up! (Now Level {runtime.currentLevel})");
-            ShowLevelUpPopup(runtime.baseData.characterName, runtime.currentLevel);
+            Debug.Log($"⬆️ {name} leveled up! (Now Level {runtime.currentLevel})");
+            ShowLevelUpPopup(name, runtime.currentLevel);
 
             // Queue this exact level for post-battle processing (so we only check moves unlocked at that level)
             pendingLevelUpQueue.Add((runtime, runtime.currentLevel));
@@ -97,7 +166,10 @@ public class ExperienceSystem : MonoBehaviour
             // DO NOT call the move prompt here — we process them after the battle.
         }
 
-        PlayerXPData[runtime.baseData.characterName] = currentXP;
+        PlayerXPData[name] = currentXP;
+
+        // Fire XP update again (store changed after level-ups/residual)
+        OnXPUpdated?.Invoke(name, currentXP);
 
         // Update persistent data immediately
         if (PersistentPlayerData.Instance != null)
@@ -107,7 +179,7 @@ public class ExperienceSystem : MonoBehaviour
     private void ApplyStatGrowth(CharacterRuntime runtime)
     {
         var data = runtime.baseData;
-        string tag = data.characterTag.ToLower();
+        string tag = data.characterTag?.ToLower() ?? "";
 
         float hpGrowth = 0.1f;
         float atkGrowth = 0.08f;
@@ -139,37 +211,6 @@ public class ExperienceSystem : MonoBehaviour
 
         Debug.Log($"📈 {data.characterName} stats increased (runtime only)!");
         Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
-    }
-
-    /// <summary>
-    /// Called by BattleManager after victory to process all queued level-up move prompts
-    /// in order, pausing the game until the player finishes each prompt.
-    /// </summary>
-    public IEnumerator ProcessPendingMovePrompts()
-    {
-        // Guard
-        if (pendingLevelUpQueue == null || pendingLevelUpQueue.Count == 0)
-            yield break;
-
-        isProcessingLevelUps = true;
-
-        // Iterate over a copy so other code can safely modify the original list if needed
-        var queueCopy = new List<(CharacterRuntime runtime, int level)>(pendingLevelUpQueue);
-
-        foreach (var entry in queueCopy)
-        {
-            var runtime = entry.runtime;
-            var level = entry.level;
-            if (runtime == null) continue;
-
-            // Process moves that unlocked *exactly* at this level
-            yield return StartCoroutine(LearnNewAttacksAtLevelCoroutine(runtime, level));
-        }
-
-        // Clear queue after processing
-        pendingLevelUpQueue.Clear();
-        isProcessingLevelUps = false;
-        yield break;
     }
 
     // ============================
@@ -234,8 +275,6 @@ public class ExperienceSystem : MonoBehaviour
             }
             else
             {
-                // Use your existing coroutine-based prompt that waits
-
                 // Wait until the player finishes the replace/cancel choice
                 yield return StartCoroutine(PromptMoveReplaceCoroutine(runtime, newAttack));
             }
@@ -311,10 +350,5 @@ public class ExperienceSystem : MonoBehaviour
     private void ShowLearnAttackPopup(string charName, string attackName)
     {
         Debug.Log($"🔥 {charName} learned a new attack: {attackName}!");
-    }
-
-    public int GetXPToNextLevel(int currentLevel)
-    {
-        return Mathf.RoundToInt(baseXPRequired * Mathf.Pow(growthRate, currentLevel - 1));
     }
 }
