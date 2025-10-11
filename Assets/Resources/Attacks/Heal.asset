@@ -10,15 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
-  m_Name: RagingTorrent
+  m_Name: Heal
   m_EditorClassIdentifier: 
-  attackName: Raging Torrent
-  description: Churns up a wind in blade and attacks all enemies
+  attackName: Heal
+  description: 
   icon: {fileID: 0}
-  power: 30
-  maxUsage: 10
-  chargeValue: 7
-  isAoE: 1
+  power: 15
+  maxUsage: 5
+  chargeValue: 0
+  isAoE: 0
   diceMin: 1
   diceMax: 10
   effectType: 0
@@ -27,7 +27,7 @@ MonoBehaviour:
   isLifeLeech: 0
   lifeLeechPercent: 0.5
   isNonDamageMove: 0
-  healsTarget: 0
+  healsTarget: 1
   buffAttack: 0
   buffAttackAmount: 0
   buffDefense: 0
@@ -49,4 +49,4 @@ MonoBehaviour:
   modifiesNextDice: 0
   nextDiceMin: 1
   nextDiceMax: 20
-  currentUsage: 10
+  currentUsage: 5

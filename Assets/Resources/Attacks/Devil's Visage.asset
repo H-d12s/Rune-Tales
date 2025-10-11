@@ -10,43 +10,51 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bbb774fd757a0fd45b1bf249cbf4fe7d, type: 3}
-  m_Name: RagingTorrent
+  m_Name: Devil's Visage
   m_EditorClassIdentifier: 
-  attackName: Raging Torrent
-  description: Churns up a wind in blade and attacks all enemies
+  attackName: Devil's Visage
+  description: 
   icon: {fileID: 0}
-  power: 30
-  maxUsage: 10
-  chargeValue: 7
+  power: 0
+  maxUsage: 25
+  chargeValue: 0
   isAoE: 1
   diceMin: 1
   diceMax: 10
-  effectType: 0
-  effectChance: 0
+  effectType: 1
+  effectChance: 0.7
   effectDuration: 0
   isLifeLeech: 0
   lifeLeechPercent: 0.5
-  isNonDamageMove: 0
+  isNonDamageMove: 1
   healsTarget: 0
   buffAttack: 0
-  buffAttackAmount: 0
+  buffAttackAmount: 0.5
   buffDefense: 0
   buffDefenseAmount: 0
   debuffAttack: 0
   debuffAttackAmount: 0
   debuffDefense: 0
   debuffDefenseAmount: 0
-  speedModifier: 0
+  buffSpeed: 0
+  buffSpeedAmount: 0
+  debuffSpeed: 0
+  debuffSpeedAmount: 0.5
   usePriority: 0
   scalesWithFallenAllies: 0
   fallenAlliesMultiplier: 1
+  scalesWithFallenEnemies: 0
+  fallenEnemiesMultiplier: 1
   scalesWithUserHP: 0
   hpDamageMultiplier: 1
   conditionalStanceMultiplier: 0
   stanceMultiplier: 1
+  affectsSelf: 1
+  manualBuffTargetSelection: 0
+  applyEffectsToSelf: 0
   modifiesNextAttack: 0
   nextAttackMultiplier: 1
   modifiesNextDice: 0
   nextDiceMin: 1
-  nextDiceMax: 20
-  currentUsage: 10
+  nextDiceMax: 10
+  currentUsage: 25
