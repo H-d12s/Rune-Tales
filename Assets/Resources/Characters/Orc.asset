@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Orc
   m_EditorClassIdentifier: 
   characterName: Orc Rider
-  characterTag: goblin
+  characterTag: boss
   portrait: {fileID: -2086825614362164317, guid: fc97f21feb3223b4bb94438fc3543fc4, type: 3}
   baseHP: 50
   baseAttack: 10

@@ -22,6 +22,14 @@ public class BattleManager : MonoBehaviour
 
     [Header("Prefabs")]
     public GameObject characterPrefab;
+    [Header("Healthbar UI")]
+    public GameObject healthBarPrefab;               // assign your HealthBar prefab
+    public Transform playerHealthContainer;         // UI container for player bars (e.g. PlayerHealthbars GameObject)
+    public Transform enemyHealthContainer;          // UI container for enemy bars (e.g. EnemyHealthbars GameObject)
+
+// runtime mapping from spawned character controllers -> their healthbar controllers
+private Dictionary<CharacterBattleController, HealthbarController> healthbarMap =
+    new Dictionary<CharacterBattleController, HealthbarController>();
 
     [Header("Teams (Populated Dynamically)")]
     public List<CharacterData> playerTeam = new List<CharacterData>();
@@ -133,25 +141,39 @@ public class BattleManager : MonoBehaviour
         return new List<CharacterBattleController>(enemyControllers);
     }
 
-    private void ClearSpawnedCharacters()
+   private void ClearSpawnedCharacters()
+{
+    // Destroy any UI healthbars from previous battles
+    if (healthbarMap != null)
     {
-        if (playerSpawnPoints != null)
+        foreach (var kv in healthbarMap)
         {
-            foreach (Transform t in playerSpawnPoints)
-                for (int i = t.childCount - 1; i >= 0; i--)
-                    Destroy(t.GetChild(i).gameObject);
+            var hb = kv.Value;
+            if (hb != null)
+                Destroy(hb.gameObject);
         }
-
-        if (enemySpawnPoints != null)
-        {
-            foreach (Transform t in enemySpawnPoints)
-                for (int i = t.childCount - 1; i >= 0; i--)
-                    Destroy(t.GetChild(i).gameObject);
-        }
-
-        playerControllers.Clear();
-        enemyControllers.Clear();
+        healthbarMap.Clear();
     }
+
+    // existing spawn point child destruction
+    if (playerSpawnPoints != null)
+    {
+        foreach (Transform t in playerSpawnPoints)
+            for (int i = t.childCount - 1; i >= 0; i--)
+                Destroy(t.GetChild(i).gameObject);
+    }
+
+    if (enemySpawnPoints != null)
+    {
+        foreach (Transform t in enemySpawnPoints)
+            for (int i = t.childCount - 1; i >= 0; i--)
+                Destroy(t.GetChild(i).gameObject);
+    }
+
+    playerControllers.Clear();
+    enemyControllers.Clear();
+}
+
 
     private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints, List<CharacterBattleController> list, bool isPlayer)
     {
@@ -181,6 +203,37 @@ public class BattleManager : MonoBehaviour
             }
 
             list.Add(ctrl);
+            if (healthBarPrefab != null)
+{
+    Transform parent = isPlayer ? playerHealthContainer : enemyHealthContainer;
+    if (parent != null)
+    {
+        var hbObj = Instantiate(healthBarPrefab, parent);
+        var hb = hbObj.GetComponent<HealthbarController>();
+        if (hb != null)
+        {
+            // try to get runtime values
+            var runtime = ctrl.GetRuntimeCharacter();
+            int lvl = runtime != null ? runtime.currentLevel : 1;
+            string displayName = ctrl.characterData != null ? ctrl.characterData.characterName : ctrl.name;
+
+            hb.Init(displayName, lvl, isPlayer);
+
+            // initial hp fill
+            if (runtime != null)
+            {
+                float percent = runtime.runtimeHP > 0 ? (float)runtime.currentHP / runtime.runtimeHP : 1f;
+                hb.SetHPInstant(percent);
+            }
+
+            // set sibling order so bars match spawn order
+            hb.transform.SetSiblingIndex(i);
+
+            // store mapping
+            healthbarMap[ctrl] = hb;
+        }
+    }
+}
         }
     }
 
@@ -355,7 +408,7 @@ public class BattleManager : MonoBehaviour
         var (attack, target) = chosenActions[actor];
         if (target == null || !target.GetRuntimeCharacter().IsAlive) continue;
 
-        PerformAttack(actor, target, attack);
+       yield return StartCoroutine(PerformAttackCoroutine(actor, target, attack));
 
         // WAIT here if a level-up / move-replace prompt is running
         if (expSystem != null)
@@ -423,18 +476,109 @@ public class BattleManager : MonoBehaviour
             StartCoroutine(FadeAndRemove(target));
 
             if (isRecruitmentBattle && recruitTarget == target)
-{
-    Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
-    if (FindObjectOfType<RecruitmentManager>() != null)
-        FindObjectOfType<RecruitmentManager>().ResetRecruitment();
-    recruitTarget = null;
-    isRecruitmentBattle = false;
-    recruitmentComplete = true;
-}
+            {
+                Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
+                if (FindObjectOfType<RecruitmentManager>() != null)
+                    FindObjectOfType<RecruitmentManager>().ResetRecruitment();
+                recruitTarget = null;
+                isRecruitmentBattle = false;
+                recruitmentComplete = true;
+            }
 
-            
+
         }
     }
+    private IEnumerator PerformAttackCoroutine(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
+{
+    if (attacker == null || target == null || attack == null) yield break;
+
+    var attackerRuntime = attacker.GetRuntimeCharacter();
+    var targetRuntime = target.GetRuntimeCharacter();
+
+    // compute dice/hit/damage exactly as PerformAttack does (or call PerformAttack to apply damage)
+    // We'll reuse the logic to update runtime by calling PerformAttack but prevent double FadeAndRemove;
+    // So: compute damage and apply it manually here (copy of PerformAttack's damage computation)
+    int dice = Random.Range(1, 11);
+    float multiplier = 1f;
+    string hitType = "";
+
+    if (dice == 1)
+    {
+        Debug.Log($"⚔️ {attacker.characterData.characterName} used {attack.attackName}! 🎲 Die: 1 ❌ Missed!");
+        Debug.Log($"{target.characterData.characterName}'s HP: {targetRuntime.currentHP}/{targetRuntime.runtimeHP}");
+        yield break;
+    }
+    else if (dice >= 8)
+    {
+        multiplier = 1.25f;
+        hitType = "💥 Critical Hit!";
+    }
+    else if (dice <= 3)
+    {
+        multiplier = 0.75f;
+        hitType = "🩹 Weak Hit!";
+    }
+    else
+    {
+        hitType = "⚔️ Normal Hit!";
+    }
+
+    int baseDamage = Mathf.Max(1, attack.power + attackerRuntime.Attack - targetRuntime.Defense / 2);
+    int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
+
+    // Apply damage to runtime
+    targetRuntime.TakeDamage(finalDamage);
+
+    Debug.Log($"⚔️ {attacker.characterData.characterName} used {attack.attackName}! 🎲 {dice} → {hitType}");
+    Debug.Log($"💥 {target.characterData.characterName} took {finalDamage} damage (HP: {targetRuntime.currentHP}/{targetRuntime.runtimeHP})");
+
+    // small hit shake (run in parallel)
+    StartCoroutine(HitShake(target.transform));
+
+    // Animate the target's healthbar: get the mapped HealthbarController
+    if (healthbarMap.TryGetValue(target, out var hb))
+    {
+        float finalPercent = targetRuntime.runtimeHP > 0 ? (float)targetRuntime.currentHP / targetRuntime.runtimeHP : 0f;
+        bool useXPFirst = target.isPlayer; // players show xp-first, enemies skip
+        yield return StartCoroutine(hb.AnimateDamageSequence(finalPercent, useXPFirst));
+    }
+    else
+    {
+        // no UI present: small delay to preserve pacing
+        yield return new WaitForSeconds(0.25f);
+    }
+
+    // Handle death and XP like before
+    if (!targetRuntime.IsAlive)
+    {
+        Debug.Log($"💀 {target.characterData.characterName} fainted!");
+        if (attacker.isPlayer && expSystem != null)
+            expSystem.GrantXP(target.characterData);
+
+        // remove healthbar mapping if still present (FadeAndRemove will also try to do it)
+        if (healthbarMap.ContainsKey(target))
+        {
+            var hbToRemove = healthbarMap[target];
+            healthbarMap.Remove(target);
+            if (hbToRemove != null) Destroy(hbToRemove.gameObject);
+        }
+
+        // start fade and remove of character sprite
+        yield return StartCoroutine(FadeAndRemove(target));
+
+        // recruitment special case as before (if applicable)
+        if (isRecruitmentBattle && recruitTarget == target)
+        {
+            Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
+            if (FindObjectOfType<RecruitmentManager>() != null)
+                FindObjectOfType<RecruitmentManager>().ResetRecruitment();
+            recruitTarget = null;
+            isRecruitmentBattle = false;
+            recruitmentComplete = true;
+        }
+    }
+}
+
 
     // ==========================================================
     // Helpers (Fade, Shake etc.)
@@ -461,6 +605,12 @@ public class BattleManager : MonoBehaviour
             yield return null;
         }
     }
+if (healthbarMap.TryGetValue(target, out var hbToDestroy))
+{
+    healthbarMap.Remove(target);
+    if (hbToDestroy != null)
+        Destroy(hbToDestroy.gameObject);
+}
 
     // Safety check before destroying
     if (target != null)
