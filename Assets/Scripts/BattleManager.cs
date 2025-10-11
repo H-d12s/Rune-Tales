@@ -701,22 +701,23 @@ if (healthbarMap.TryGetValue(target, out var hbToDestroy))
     // Persuasion (recruit) processing
     // ==========================================================
     public void TryPersuade(CharacterBattleController explicitTarget)
+{
+    if (explicitTarget == null)
     {
-        if (explicitTarget == null)
-        {
-            Debug.LogWarning("⚠️ TryPersuade called with null target.");
-            return;
-        }
-
-        if (!isRecruitmentBattle)
-        {
-            Debug.Log("❌ Not a recruitment battle.");
-            return;
-        }
-
-        recruitTarget = explicitTarget;
-        TryPersuade();
+        Debug.LogWarning("⚠️ TryPersuade called with null target.");
+        return;
     }
+
+    if (!isRecruitmentBattle)
+    {
+        Debug.Log("❌ Not a recruitment battle.");
+        return;
+    }
+
+    recruitTarget = explicitTarget;
+    StartCoroutine(TryPersuade()); // <-- Important: start the IEnumerator coroutine
+}
+
 
    public IEnumerator TryPersuade()
 {
