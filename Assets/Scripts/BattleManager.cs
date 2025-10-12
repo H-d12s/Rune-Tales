@@ -1426,8 +1426,6 @@ private IEnumerator ProcessMessageQueue()
             {
                 string ttsContext = "battle";
                 float ttsPadding = 0.12f;
-                StartCoroutine(RunAndMark(tts.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding),
-                                          () => ttsDone = true));
             }
             catch (System.Exception ex)
             {
