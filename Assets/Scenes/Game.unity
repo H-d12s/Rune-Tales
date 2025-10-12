@@ -4443,15 +4443,15 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2130475635}
-  - component: {fileID: 2130475634}
   - component: {fileID: 2130475633}
+  - component: {fileID: 2130475636}
   m_Layer: 0
-  m_Name: MurfTTSStream
+  m_Name: BattleNarrator
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!82 &2130475633
 AudioSource:
   m_ObjectHideFlags: 0
@@ -4539,7 +4539,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1
+      value: 0.918
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -4549,22 +4549,6 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
---- !u!114 &2130475634
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2130475632}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0acb532566829594ea05c2771a6d39cb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  apiKey: ap2_1210100a-8def-4839-9825-095fa0c59ce2
-  voiceId: en-US-ken
-  style: Wizard
-  pitch: -35
 --- !u!4 &2130475635
 Transform:
   m_ObjectHideFlags: 0
@@ -4580,6 +4564,26 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2130475636
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2130475632}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8bb697f45a53da4ba358e2ed6fd41a5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  apiKey: ap2_1210100a-8def-4839-9825-095fa0c59ce2
+  voiceId: en-US-ken
+  style: Wizard
+  pitch: -35
+  audioSource: {fileID: 0}
+  sampleRate: 48000
+  minPlaySamples: 2048
+  defaultTimeoutSeconds: 10
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
