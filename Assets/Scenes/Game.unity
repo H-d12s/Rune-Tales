@@ -4583,6 +4583,7 @@ MonoBehaviour:
   audioSource: {fileID: 0}
   sampleRate: 48000
   minPlaySamples: 2048
+  minReadySamples: 512
   defaultTimeoutSeconds: 10
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

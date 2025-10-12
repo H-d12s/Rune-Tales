@@ -1383,6 +1383,7 @@ private IEnumerator ProcessMessageQueue()
         if (messageUI != null && messageUI.gameObject != null && !messageUI.gameObject.activeInHierarchy)
             messageUI.gameObject.SetActive(true);
 
+        // Stop any previously-running typed coroutine handle
         if (activeMessageCoroutine != null)
         {
             try { StopCoroutine(activeMessageCoroutine); } catch { }
@@ -1392,7 +1393,7 @@ private IEnumerator ProcessMessageQueue()
         bool typedDone = false;
         bool ttsDone = false;
 
-        IEnumerator RunAndMark(IEnumerator job, System.Action markDone)
+        IEnumerator RunAndMark(IEnumerator job, Action markDone)
         {
             yield return StartCoroutine(job);
             try { markDone?.Invoke(); } catch { }
@@ -1401,75 +1402,105 @@ private IEnumerator ProcessMessageQueue()
         bool startedTyped = false;
         var narrator = FindObjectOfType<BattleNarrator>();
 
+        // -------------------
+        // If we have messageUI
+        // -------------------
         if (messageUI != null)
         {
-            try
+            // If we have a narrator, first prepare speech (wait for initial audio buffer),
+            // then start the persistent typing and SpeakAndWait.
+            if (narrator != null)
             {
-                // If we have a narrator, use the persistent typing variant so the panel doesn't auto-hide
-                if (narrator != null)
+                // 1) Prepare speech (start prepare coroutine). Wrap only StartCoroutine in try/catch.
+                bool prepDone = false;
+                float prepareTimeout = 4f; // tune this if your voice service is slower
+                try
                 {
-                    // ShowMessagePersistent should NOT auto-hide at the end — caller will hide it after TTS finishes.
+                    StartCoroutine(RunAndMark(narrator.PrepareSpeechCoroutine("battle", req.text, prepareTimeout),
+                                              () => prepDone = true));
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"⚠️ Could not start narrator PrepareSpeechCoroutine: {ex.Message}");
+                    prepDone = true; // fallback — don't block UI forever
+                }
+
+                // wait for prepare to finish or timeout or cancel
+                float prepStart = Time.realtimeSinceStartup;
+                while (!prepDone && Time.realtimeSinceStartup - prepStart < prepareTimeout && !req.completed)
+                    yield return null;
+
+                if (!prepDone)
+                {
+                    Debug.LogWarning($"⚠️ Narrator prepare did not complete within {prepareTimeout}s for '{req.text}'. UI will still proceed.");
+                }
+
+                // 2) Start persistent typed message now that audio is likely ready.
+                try
+                {
                     activeMessageCoroutine =
                         StartCoroutine(RunAndMark(messageUI.ShowMessagePersistent(req.text), () => typedDone = true));
+                    startedTyped = true;
                 }
-                else
+                catch (Exception ex)
                 {
-                    // No narrator: use normal typed message which will auto-hide itself.
+                    Debug.LogWarning($"⚠️ Could not start persistent typed message for '{req.text}': {ex.Message}");
+                    typedDone = true;
+                    activeMessageCoroutine = null;
+                }
+
+                // 3) Start SpeakAndWait so we block until playback fully finishes.
+                // 3) Start SpeakAndWait so we block until playback fully finishes.
+try
+{
+    float speakTimeout = 12f; // tune as needed
+    // IMPORTANT: we've already sent the text in PrepareSpeechCoroutine, so ask SpeakAndWait to NOT send again
+    StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine("battle", req.text, speakTimeout, false),
+                              () => ttsDone = true));
+}
+catch (Exception ex)
+{
+    Debug.LogWarning($"⚠️ Failed to start BattleNarrator SpeakAndWait for '{req.text}': {ex.Message}");
+    ttsDone = true;
+}
+
+            }
+            else
+            {
+                // No narrator: fallback to legacy typed message which auto-hides itself
+                try
+                {
                     activeMessageCoroutine =
                         StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
+                    startedTyped = true;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
+                    typedDone = true;
+                    activeMessageCoroutine = null;
                 }
 
-                startedTyped = true;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
-                typedDone = true;
-                activeMessageCoroutine = null;
-            }
-        }
-        else
-        {
-            typedDone = true;
-        }
-
-        // Start narrator/TTS if present
-        if (narrator != null)
-        {
-            try
-            {
-                string ttsContext = "battle";
-                float ttsPadding = 0.12f; // passed as timeout to SpeakAndWaitCoroutine
-                StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding),
-                                          () => ttsDone = true));
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"⚠️ Failed to start BattleNarrator for message '{req.text}': {ex.Message}");
+                // no TTS to wait for
                 ttsDone = true;
             }
         }
         else
         {
-            // no narrator found -> don't block on TTS
+            typedDone = true;
             ttsDone = true;
         }
 
+        // If typing never started, show instant fallback
         if (!startedTyped && messageUI != null)
         {
-            try
-            {
-                messageUI.ShowMessageInstant(req.text);
-            }
-            catch
-            {
-                Debug.Log(req.text);
-            }
+            try { messageUI.ShowMessageInstant(req.text); }
+            catch { Debug.Log(req.text); }
             yield return new WaitForSeconds(0.45f);
         }
 
         // Wait until both finished or a safety timeout OR until someone externally marks req.completed
-        float safetyTimeout = 12f; // seconds (adjust if needed)
+        float safetyTimeout = 20f;
         float elapsed = 0f;
         while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
         {
@@ -1477,23 +1508,21 @@ private IEnumerator ProcessMessageQueue()
             yield return null;
         }
 
-        // If we timed out or TTS failed, log and continue.
         if (!(typedDone && ttsDone) && !req.completed)
         {
             Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
         }
 
-        // If we used persistent message (narrator != null), make sure to explicitly hide/clear it so it doesn't stick.
+        // If we used a persistent message (narrator != null), explicitly hide/clear it so it doesn't stick.
         if (messageUI != null && narrator != null)
         {
-            // HideInstant also clears the persistent flag in your BattleMessageUI implementation.
             try { messageUI.HideInstant(); } catch { }
         }
 
         // Clear active typed reference
         activeMessageCoroutine = null;
 
-        // Mark request completed (so any ShowBattleMessage callers waiting will continue).
+        // Mark request completed (so any ShowBattleMessage callers waiting will continue)
         req.completed = true;
 
         // tiny buffer
@@ -1504,7 +1533,6 @@ private IEnumerator ProcessMessageQueue()
     }
 
     processingMessageQueue = false;
-    // clear the stored coroutine handle
     messageQueueCoroutine = null;
 }
 
