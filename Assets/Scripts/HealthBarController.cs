@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using TMPro;
 using UnityEngine;
@@ -24,6 +25,9 @@ public class HealthbarController : MonoBehaviour
     private Coroutine hpAnim;
     private Coroutine xpAnim;
 
+    // runtime binding
+    private CharacterRuntime boundRuntime;
+
     /// <summary>
     /// Set basic text/visibility. Call after instantiating.
     /// </summary>
@@ -41,6 +45,48 @@ public class HealthbarController : MonoBehaviour
         // default fill amounts (full)
         if (hpFill != null) hpFill.fillAmount = 1f;
         if (xpFill != null) xpFill.fillAmount = 0f;
+    }
+
+    /// <summary>
+    /// Bind a CharacterRuntime to this healthbar so the bar can read initial values.
+    /// This does NOT subscribe to runtime changes automatically (safe).
+    /// If you want automatic updates when XP changes, we can add an event subscription.
+    /// </summary>
+    public void BindRuntime(CharacterRuntime runtime)
+    {
+        boundRuntime = runtime;
+        if (boundRuntime == null) return;
+
+        // Update displayed texts if available
+        if (nameText != null)
+            nameText.text = boundRuntime.baseData.characterName + (boundRuntime.currentLevel > 0 ? $" (Lv{boundRuntime.currentLevel})" : "");
+        if (levelText != null)
+            levelText.text = $"Lv {boundRuntime.currentLevel}";
+
+        // Set initial HP fill from runtime
+        if (hpFill != null && boundRuntime.runtimeHP > 0)
+        {
+            float percent = (float)boundRuntime.currentHP / Mathf.Max(1, boundRuntime.runtimeHP);
+            hpFill.fillAmount = Mathf.Clamp01(percent);
+        }
+
+        // If an ExperienceSystem exists in scene, set the XP fill to stored XP percentage (if xpContainer is active)
+        var exp = FindObjectOfType<ExperienceSystem>();
+        if (xpFill != null && xpContainer != null && xpContainer.activeSelf && exp != null)
+        {
+            try
+            {
+                int storedXP = exp.GetStoredXPFor(boundRuntime.baseData.characterName);
+                int xpToNext = exp.GetXPToNextLevel(boundRuntime.currentLevel);
+                float xpPercent = xpToNext > 0 ? Mathf.Clamp01((float)storedXP / xpToNext) : 0f;
+                xpFill.fillAmount = xpPercent;
+            }
+            catch
+            {
+                // If ExperienceSystem in your current project doesn't provide those methods/signatures,
+                // we fail quietly to avoid compile/runtime exceptions.
+            }
+        }
     }
 
     /// <summary>

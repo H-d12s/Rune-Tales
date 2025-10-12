@@ -2,9 +2,18 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.UI;
+using System;
+using Random = UnityEngine.Random;
 
+
+/// <summary>
+/// Central battle manager. Handles spawning, turns, messages (queued), recruitment and integration with ExperienceSystem / UI.
+/// </summary>
 public class BattleManager : MonoBehaviour
 {
+    [Header("Battle Messages")]
+    public BattleMessageUI messageUI; // assign in inspector
+
     [Header("Visuals")]
     public Image backgroundImageUI;       // assign from Canvas
     private RegionData currentRegion;     // stores current region data
@@ -32,7 +41,7 @@ public class BattleManager : MonoBehaviour
     private Dictionary<CharacterBattleController, HealthbarController> healthbarMap =
         new Dictionary<CharacterBattleController, HealthbarController>();
 
-    [Header("Teams (Editable)")]
+    [Header("Teams (Populated Dynamically)")]
     public List<CharacterData> playerTeam = new List<CharacterData>();
     public List<CharacterData> enemyTeam = new List<CharacterData>();
 
@@ -57,12 +66,21 @@ public class BattleManager : MonoBehaviour
     public int maxPersuadeAttempts = 3;
     private int persuadeAttempts = 0;
 
+    // ---------- Message queue state ----------
+    private class MessageRequest
+    {
+        public string text;
+        public bool completed;
+    }
+    private Queue<MessageRequest> messageQueue = new Queue<MessageRequest>();
+    private bool processingMessageQueue = false;
+    private Coroutine activeMessageCoroutine = null;
+
     // -------------------------
-    // Fallback Start: if you want to run this scene standalone (no EncounterManager)
+    // Unity lifecycle
     // -------------------------
     void Start()
     {
-        // find core systems
         uiManager = FindFirstObjectByType<BattleUIManager>();
         expSystem = FindFirstObjectByType<ExperienceSystem>();
         encounterManager = FindFirstObjectByType<EncounterManager>();
@@ -70,7 +88,7 @@ public class BattleManager : MonoBehaviour
         if (uiManager == null) Debug.LogWarning("⚠️ No BattleUIManager found in scene (BattleManager.Start).");
         if (expSystem == null) Debug.LogWarning("⚠️ No ExperienceSystem found in scene (BattleManager.Start).");
 
-        // If someone populated the playerTeam/enemyTeam in the inspector and wants the battle to auto-start
+        // If inspector teams are present, start automatically (helpful for testing)
         if (playerTeam != null && playerTeam.Count > 0 && enemyTeam != null && enemyTeam.Count > 0)
         {
             StartBattle(playerTeam, enemyTeam, currentRegion);
@@ -78,21 +96,24 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // Called from EncounterManager (preferred entrypoint)
+    // Public API to start battles
     // ==========================================================
     public void StartBattle(List<CharacterData> playerTeamData, List<CharacterData> enemyTeamData, RegionData region = null)
     {
         Debug.Log("⚔️ Starting new battle...");
 
+        // Cleanup previous instances first
         CleanupOldInstances();
 
-        // Reset
+        // Reset internal state
         StopAllCoroutines();
         battleActive = false;
         chosenActions.Clear();
         playerControllers.Clear();
         enemyControllers.Clear();
+        healthbarMap.Clear();
 
+        // Validate input lists
         playerTeam = playerTeamData ?? new List<CharacterData>();
         enemyTeam = enemyTeamData ?? new List<CharacterData>();
         currentRegion = region;
@@ -105,6 +126,17 @@ public class BattleManager : MonoBehaviour
         if (expSystem == null) Debug.LogError("❌ No ExperienceSystem found!");
         if (encounterManager == null) Debug.LogWarning("⚠️ No EncounterManager found (if you expect one).");
 
+        if (characterPrefab == null)
+        {
+            Debug.LogError("❌ characterPrefab is not assigned on BattleManager — cannot spawn characters.");
+            return;
+        }
+
+        if ((playerSpawnPoints == null || playerSpawnPoints.Length == 0) && playerTeam.Count > 0)
+            Debug.LogWarning("⚠️ playerSpawnPoints is null or empty — players may not spawn correctly.");
+        if ((enemySpawnPoints == null || enemySpawnPoints.Length == 0) && enemyTeam.Count > 0)
+            Debug.LogWarning("⚠️ enemySpawnPoints is null or empty — enemies may not spawn correctly.");
+
         // Fade background if we have region data
         if (currentRegion != null && backgroundImageUI != null)
         {
@@ -112,12 +144,18 @@ public class BattleManager : MonoBehaviour
             StartCoroutine(FadeRegionBackground(currentRegion));
         }
 
-        // Clean old spawned objects
+        // Clean old spawned objects then spawn teams
         ClearSpawnedCharacters();
-
-        // Spawn teams
         SpawnTeam(playerTeam, playerSpawnPoints, playerControllers, true);
         SpawnTeam(enemyTeam, enemySpawnPoints, enemyControllers, false);
+
+        // Debug info about what actually got spawned
+        Debug.Log($"✅ StartBattle: spawned players {playerControllers.Count}, enemies {enemyControllers.Count}");
+        for (int i = 0; i < enemyControllers.Count; i++)
+        {
+            var e = enemyControllers[i];
+            Debug.Log($"[Enemy {i}] {(e != null && e.characterData != null ? e.characterData.characterName : "NULL")}");
+        }
 
         // Recruitment setup
         if (isRecruitmentBattle)
@@ -133,10 +171,21 @@ public class BattleManager : MonoBehaviour
             if (uiManager != null) uiManager.SetPersuadeButtonActive(false);
         }
 
-        // Initialize EXP
-        if (expSystem != null) expSystem.Initialize(playerControllers);
+        // Initialize EXP using the actual spawned players list
+        if (expSystem != null) expSystem.Initialize(playerControllers, this);
 
-        // Start battle loop
+        // Only start loop if we have both sides present
+        if (playerControllers.Count == 0)
+        {
+            Debug.LogWarning("⚠️ No player controllers spawned — aborting battle start.");
+            return;
+        }
+        if (enemyControllers.Count == 0)
+        {
+            Debug.LogWarning("⚠️ No enemy controllers spawned — nothing to fight. Aborting battle start.");
+            return;
+        }
+
         battleActive = true;
         StartCoroutine(BattleLoop());
 
@@ -162,56 +211,99 @@ public class BattleManager : MonoBehaviour
         return new List<CharacterBattleController>(enemyControllers);
     }
 
+    // ==========================================================
+    // Spawning / clearing helpers
+    // ==========================================================
     private void ClearSpawnedCharacters()
     {
-        // Destroy any UI healthbars from previous battles
+        // Destroy healthbars
         if (healthbarMap != null)
         {
-            foreach (var kv in healthbarMap)
+            foreach (var kv in new Dictionary<CharacterBattleController, HealthbarController>(healthbarMap))
             {
-                var hb = kv.Value;
-                if (hb != null)
-                    Destroy(hb.gameObject);
+                if (kv.Value != null) Destroy(kv.Value.gameObject);
             }
             healthbarMap.Clear();
         }
 
-        // existing spawn point child destruction
+        // Destroy children of spawn points safely
         if (playerSpawnPoints != null)
         {
-            foreach (Transform t in playerSpawnPoints)
-                for (int i = t.childCount - 1; i >= 0; i--)
-                    Destroy(t.GetChild(i).gameObject);
+            foreach (var t in playerSpawnPoints)
+                if (t != null)
+                    for (int i = t.childCount - 1; i >= 0; i--)
+                        DestroyImmediateOrRuntime(t.GetChild(i).gameObject);
         }
 
         if (enemySpawnPoints != null)
         {
-            foreach (Transform t in enemySpawnPoints)
-                for (int i = t.childCount - 1; i >= 0; i--)
-                    Destroy(t.GetChild(i).gameObject);
+            foreach (var t in enemySpawnPoints)
+                if (t != null)
+                    for (int i = t.childCount - 1; i >= 0; i--)
+                        DestroyImmediateOrRuntime(t.GetChild(i).gameObject);
         }
 
         playerControllers.Clear();
         enemyControllers.Clear();
     }
 
+    private void DestroyImmediateOrRuntime(GameObject go)
+    {
+#if UNITY_EDITOR
+        DestroyImmediate(go);
+#else
+        Destroy(go);
+#endif
+    }
+
     private void SpawnTeam(List<CharacterData> teamData, Transform[] spawnPoints, List<CharacterBattleController> list, bool isPlayer)
     {
-        if (teamData == null || spawnPoints == null) return;
-
-        for (int i = 0; i < teamData.Count && i < spawnPoints.Length; i++)
+        if (teamData == null || spawnPoints == null || characterPrefab == null)
         {
-            var obj = Instantiate(characterPrefab, spawnPoints[i].position + new Vector3(0, verticalOffset, 0), Quaternion.identity);
+            Debug.LogWarning("SpawnTeam: invalid parameters (teamData/spawnPoints/characterPrefab).");
+            return;
+        }
+
+        int spawnLimit = Mathf.Min(teamData.Count, spawnPoints.Length);
+        if (teamData.Count > spawnPoints.Length)
+            Debug.LogWarning($"SpawnTeam: only {spawnPoints.Length} spawn points but {teamData.Count} characters requested — spawning first {spawnLimit}.");
+
+        for (int i = 0; i < spawnLimit; i++)
+        {
+            var spawnPos = spawnPoints[i];
+            if (spawnPos == null)
+            {
+                Debug.LogWarning($"SpawnTeam: spawn point {i} is null, skipping.");
+                continue;
+            }
+
+            var obj = Instantiate(characterPrefab, spawnPos.position + new Vector3(0, verticalOffset, 0), Quaternion.identity);
+            if (obj == null)
+            {
+                Debug.LogError("SpawnTeam: Instantiate returned null.");
+                continue;
+            }
+
+            obj.SetActive(true);
+
             var ctrl = obj.GetComponent<CharacterBattleController>();
+            if (ctrl == null)
+            {
+                Debug.LogError("SpawnTeam: spawned prefab missing CharacterBattleController component.");
+                Destroy(obj);
+                continue;
+            }
 
             ctrl.characterData = teamData[i];
             ctrl.isPlayer = isPlayer;
-            ctrl.InitializeCharacter();
 
-            // Apply persistent runtime BEFORE battle starts (if available)
+            // Initialize runtime and visuals
+            try { ctrl.InitializeCharacter(); } catch (System.Exception ex) { Debug.LogWarning($"SpawnTeam: InitializeCharacter threw: {ex}"); }
+
+            // Apply persistent player runtime prior to battle (players only)
             if (isPlayer && PersistentPlayerData.Instance != null)
             {
-                PersistentPlayerData.Instance.ApplyToRuntime(ctrl.GetRuntimeCharacter());
+                try { PersistentPlayerData.Instance.ApplyToRuntime(ctrl.GetRuntimeCharacter()); } catch { }
             }
 
             // Flip enemy visuals
@@ -224,39 +316,60 @@ public class BattleManager : MonoBehaviour
 
             list.Add(ctrl);
 
-            // Healthbar integration (if prefab assigned)
-            if (healthBarPrefab != null && (isPlayer ? playerHealthContainer : enemyHealthContainer) != null)
+            // Create healthbar if prefab and container assigned
+            if (healthBarPrefab != null)
             {
                 Transform parent = isPlayer ? playerHealthContainer : enemyHealthContainer;
-                var hbObj = Instantiate(healthBarPrefab, parent);
-                var hb = hbObj.GetComponent<HealthbarController>();
-                if (hb != null)
+                if (parent != null)
                 {
-                    var runtime = ctrl.GetRuntimeCharacter();
-                    int lvl = runtime != null ? runtime.currentLevel : 1;
-                    string displayName = ctrl.characterData != null ? ctrl.characterData.characterName : ctrl.name;
-
-                    hb.Init(displayName, lvl, isPlayer);
-
-                    // initial hp fill
-                    if (runtime != null)
+                    var hbObj = Instantiate(healthBarPrefab, parent);
+                    var hb = hbObj.GetComponent<HealthbarController>();
+                    if (hb != null)
                     {
-                        float percent = runtime.runtimeHP > 0 ? (float)runtime.currentHP / runtime.runtimeHP : 1f;
-                        hb.SetHPInstant(percent);
+                        var runtime = ctrl.GetRuntimeCharacter();
+                        int lvl = runtime != null ? runtime.currentLevel : 1;
+                        string displayName = ctrl.characterData != null ? ctrl.characterData.characterName : ctrl.name;
+
+                        hb.Init(displayName, lvl, isPlayer);
+
+                        if (runtime != null)
+                        {
+                            float percent = runtime.runtimeHP > 0 ? (float)runtime.currentHP / runtime.runtimeHP : 1f;
+                            hb.SetHPInstant(percent);
+                        }
+
+                        hb.transform.SetSiblingIndex(i);
+                        healthbarMap[ctrl] = hb;
+
+                        try { hb.BindRuntime(ctrl.GetRuntimeCharacter()); } catch { }
+
+                        if (isPlayer && expSystem != null && runtime != null)
+                        {
+                            int storedXP = 0;
+                            try { storedXP = expSystem.GetStoredXPFor(runtime.baseData.characterName); } catch { storedXP = 0; }
+                            int xpToNext = 0;
+                            try { xpToNext = expSystem.GetXPToNextLevel(runtime.currentLevel); } catch { xpToNext = 0; }
+                            float xpPercent = xpToNext > 0 ? Mathf.Clamp01(storedXP / (float)xpToNext) : 0f;
+                            try { hb.AnimateXP(xpPercent); } catch { }
+                        }
+
+                        var rt = hb.GetComponent<RectTransform>();
+                        if (rt != null)
+                        {
+                            float spacing = 30f;
+                            Vector2 anchored = rt.anchoredPosition;
+                            anchored.y = -i * spacing;
+                            rt.anchoredPosition = anchored;
+                        }
                     }
-
-                    // set sibling order so bars match spawn order
-                    hb.transform.SetSiblingIndex(i);
-
-                    // store mapping
-                    healthbarMap[ctrl] = hb;
                 }
             }
         }
+        Debug.Log($"SpawnTeam: spawned {list.Count} {(isPlayer ? "player" : "enemy")} controllers.");
     }
 
     // ==========================================================
-    // Main loop
+    // Main loop & phases
     // ==========================================================
     private IEnumerator BattleLoop()
     {
@@ -265,7 +378,7 @@ public class BattleManager : MonoBehaviour
             // Player turn / choose actions
             yield return StartCoroutine(PlayerCommandPhase());
 
-            // Enemy actions decided
+            // Enemy decide
             EnemyCommandPhase();
 
             // Execute actions
@@ -292,10 +405,6 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    // ==========================================================
-    // Player decision phase — only active character can Persuade,
-    // and we clear callbacks after each player's choice so actions do not persist.
-    // ==========================================================
     private IEnumerator PlayerCommandPhase()
     {
         chosenActions.Clear();
@@ -319,11 +428,11 @@ public class BattleManager : MonoBehaviour
             // Set UI to the active player
             if (uiManager != null)
             {
-                uiManager.SetPlayerController(currentPlayer);
+                uiManager.playerController = currentPlayer;
                 uiManager.ShowMainActions();
             }
 
-            // Assign attack callback (UI will invoke on attack confirm)
+            // Assign callbacks to UI
             if (uiManager != null)
             {
                 uiManager.onAttackConfirmed = (attack, target) =>
@@ -333,15 +442,11 @@ public class BattleManager : MonoBehaviour
                     actionChosen = true;
                 };
 
-                // Assign persuade callback for this specific player only:
                 uiManager.onPersuadeRequested = () =>
                 {
-                    // find the first alive enemy (or the recruitTarget for recruitment battles)
                     CharacterBattleController target = null;
                     if (isRecruitmentBattle && recruitTarget != null && recruitTarget.GetRuntimeCharacter().IsAlive)
-                    {
                         target = recruitTarget;
-                    }
                     else
                     {
                         var enemiesAlive = enemyControllers.FindAll(e => e != null && e.GetRuntimeCharacter().IsAlive);
@@ -351,30 +456,25 @@ public class BattleManager : MonoBehaviour
                     if (target != null)
                     {
                         Debug.Log($"🗣️ {currentPlayer.characterData.characterName} attempting to persuade {target.characterData.characterName}...");
-                        // Call TryPersuade on the recruit target — this increments attempt and handles result.
                         TryPersuade(target);
                     }
-                    else
-                    {
-                        Debug.LogWarning("⚠️ No valid persuasion target at this time.");
-                    }
+                    else Debug.LogWarning("⚠️ No valid persuasion target at this time.");
 
-                    // Persuade ends the player's turn immediately (like throwing a pokeball)
+                    // Persuade ends the player's turn immediately
                     actionChosen = true;
                 };
             }
 
-            // Wait until player picks an action (attack or persuade)
+            // Wait for player's selection
             yield return new WaitUntil(() => actionChosen);
 
-            // If Attack chosen, store the action to resolve later
+            // If Attack chosen store it
             if (chosenAttack != null && chosenTarget != null)
             {
                 chosenActions[currentPlayer] = (chosenAttack, chosenTarget);
             }
-            // If the player used Persuade, we marked actionChosen but we DO NOT queue an attack — turn ends.
 
-            // Clear UI callbacks immediately so they can't be reused by the next player's turn
+            // Clear UI callbacks and hide panels
             if (uiManager != null)
             {
                 uiManager.onAttackConfirmed = null;
@@ -388,9 +488,6 @@ public class BattleManager : MonoBehaviour
         yield return new WaitForSeconds(0.2f);
     }
 
-    // ==========================================================
-    // Enemy decision
-    // ==========================================================
     private void EnemyCommandPhase()
     {
         foreach (var enemy in enemyControllers)
@@ -399,7 +496,7 @@ public class BattleManager : MonoBehaviour
             if (!runtime.IsAlive) continue;
 
             var attacks = runtime.equippedAttacks;
-            if (attacks.Count == 0) continue;
+            if (attacks == null || attacks.Count == 0) continue;
 
             var attack = attacks[Random.Range(0, attacks.Count)];
             var targets = playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive);
@@ -410,9 +507,6 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    // ==========================================================
-    // Resolve actions ordered by speed (uses coroutine performer)
-    // ==========================================================
     private IEnumerator ResolveActions()
     {
         turnOrder = new List<CharacterBattleController>(chosenActions.Keys);
@@ -428,7 +522,7 @@ public class BattleManager : MonoBehaviour
 
             yield return StartCoroutine(PerformAttackCoroutine(actor, target, attack));
 
-            // WAIT here if a level-up / move-replace prompt is running
+            // WAIT while ExperienceSystem is processing level-up prompts
             if (expSystem != null)
             {
                 yield return new WaitWhile(() => expSystem.IsProcessingLevelUps);
@@ -439,344 +533,299 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // Attack execution (move logic + many hardcoded mechanics)
-    // Uses advanced move handling from the second file
+    // Attack logic / animation wrapper
     // ==========================================================
-    public void PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
+   public (int diceRoll, string hitType, int damageDealt) PerformAttack(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
+{
+    if (attacker == null || target == null || attack == null) return (0, "", 0);
+
+    var runtime = attacker.GetRuntimeCharacter();
+
+    // --- Skip turn if stunned ---
+    if (attacker.ShouldSkipTurn())
     {
-        if (attacker == null || target == null || attack == null) return;
-
-        var runtime = attacker.GetRuntimeCharacter();
-
-        // --- Skip turn if stunned ---
-        if (attacker.ShouldSkipTurn())
-        {
-            Debug.Log($"💫 {attacker.characterData.characterName} is stunned and skips their turn!");
-            return;
-        }
-
-        // --- PP / Usage check (PLAYER ONLY) ---
-        bool consumed = false;
-        if (attacker.isPlayer)
-        {
-            if (attack.currentUsage <= 0)
-            {
-                Debug.LogWarning($"⚠️ {attacker.characterData.characterName} tried to use {attack.attackName} but has no uses left!");
-                return;
-            }
-
-            // consume one use for player
-            attack.currentUsage--;
-            consumed = true;
-        }
-
-        // --- Hardcoded Cosmic Corruptor ---
-        if (attack.attackName == "Cosmic Corruptor")
-        {
-            // Ensure target is valid
-            if (target == null || !target.GetRuntimeCharacter().IsAlive)
-            {
-                Debug.LogWarning($"⚠️ Invalid target for Cosmic Corruptor!");
-                return;
-            }
-
-            var targetRuntime = target.GetRuntimeCharacter();
-
-            // Apply Burn and Poison
-            targetRuntime.ApplyStatusEffect(AttackEffectType.Burn, 3);
-            targetRuntime.ApplyStatusEffect(AttackEffectType.Poison, 3);
-
-            // Deal fixed 40 damage
-            int damageDealt = targetRuntime.TakeDamage(40, attacker.GetRuntimeCharacter());
-            Debug.Log($"☄️ {attacker.characterData.characterName} used Cosmic Corruptor on {target.characterData.characterName}, dealing {damageDealt} damage and applying Burn & Poison for 3 turns!");
-
-            return; // exit PerformAttack since this move is fully handled
-        }
-
-        // === Hardcoded Ashina Stance ===
-        if (attack.attackName == "Ashina Stance")
-        {
-            attacker.EnterStance(2);
-            Debug.Log($"🧘‍♂️ {attacker.characterData.characterName} uses Ashina Stance! No damage dealt, preparing for next move.");
-            return;
-        }
-
-        if (attack.attackName == "Assassinate")
-        {
-            // Make sure the target is valid
-            if (target == null || !target.GetRuntimeCharacter().IsAlive)
-            {
-                Debug.LogWarning($"⚠️ Invalid target for Assassinate!");
-                return;
-            }
-
-            var targetRuntime = target.GetRuntimeCharacter();
-            var attackerRuntime = attacker.GetRuntimeCharacter();
-
-            // Apply the "mark" status
-            targetRuntime.ApplyTemporaryMark(attackerRuntime, 2.5f, 1); // duration = 1 turn, multiplier = 2.5x
-
-            Debug.Log($"🎯 {attacker.characterData.characterName} marked {target.characterData.characterName} for Assassination!");
-            return;
-        }
-
-        if (attack.attackName == "Purgatory")
-        {
-            var attackerRuntime = attacker.GetRuntimeCharacter();
-            var targetRuntime = target.GetRuntimeCharacter();
-
-            if (!targetRuntime.IsAlive)
-            {
-                Debug.LogWarning("⚠️ Invalid target for Purgatory!");
-                return;
-            }
-
-            // HP-based scaling: lower HP = more power
-            float hpRatio = Mathf.Clamp01((float)attackerRuntime.currentHP / attackerRuntime.MaxHP);
-            float damageMultiplier = 1f + (1f - hpRatio) * 2f; // up to 3x at 1 HP
-
-            int baseDamage = Mathf.Max(1, attack.power + attackerRuntime.Attack - targetRuntime.Defense / 2);
-            int finalDamage = Mathf.RoundToInt(baseDamage * damageMultiplier);
-
-            int damageDealt = targetRuntime.TakeDamage(finalDamage, attackerRuntime);
-
-            Debug.Log($"🔥 {attacker.characterData.characterName} unleashes PURGATORY! ({Mathf.RoundToInt(damageMultiplier * 100f)}% power)");
-            Debug.Log($"💥 {attacker.characterData.characterName} dealt {damageDealt} damage to {target.characterData.characterName}!");
-
-            // Optional: Life drain effect
-            if (attack.isLifeLeech)
-            {
-                int healAmount = Mathf.RoundToInt(damageDealt * attack.lifeLeechPercent);
-                attackerRuntime.Heal(healAmount);
-                Debug.Log($"🩸 {attacker.characterData.characterName} absorbed {healAmount} HP from Purgatory!");
-            }
-
-            return;
-        }
-
-        // === Healing Move ===
-        if (attack.healsTarget)
-        {
-            if (!target.GetRuntimeCharacter().IsAlive)
-            {
-                // Refund usage only if player consumed it
-                if (consumed && attacker.isPlayer)
-                {
-                    attack.currentUsage++;
-                    consumed = false;
-                }
-
-                Debug.LogWarning("⚠️ Invalid target for healing!");
-                return;
-            }
-
-            int healAmount = Mathf.RoundToInt(attack.power + runtime.Attack * 0.5f);
-            target.GetRuntimeCharacter().Heal(healAmount);
-            Debug.Log($"💚 {attacker.characterData.characterName} healed {target.characterData.characterName} for {healAmount} HP using {attack.attackName}!");
-            return;
-        }
-
-        // === Non-Damage / Setup Moves / Buffs ===
-        if (attack.isNonDamageMove)
-        {
-            // Setup moves
-            if (attack.modifiesNextDice)
-                runtime.SetNextDiceRange(attack.nextDiceMin, attack.nextDiceMax);
-
-            if (attack.modifiesNextAttack)
-                runtime.SetNextAttackMultiplier(attack.nextAttackMultiplier);
-
-            // Determine targets for buffs/debuffs
-            List<CharacterBattleController> buffTargets = new List<CharacterBattleController>();
-
-            if (attack.isAoE)
-            {
-                // AoE buffs/debuffs
-                buffTargets.AddRange(playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive));
-            }
-            else if (attack.manualBuffTargetSelection)
-            {
-                // Manual target selection: use the clicked target
-                buffTargets.Add(target);
-            }
-            else if (attack.affectsSelf)
-            {
-                // Auto-buff self (UI auto-target behavior preserved)
-                buffTargets.Add(attacker);
-            }
-            else
-            {
-                // Default: single target (like Fortify / Heal)
-                buffTargets.Add(target);
-            }
-
-            // Apply buffs/debuffs
-            foreach (var buff in buffTargets)
-            {
-                var buffRuntime = buff.GetRuntimeCharacter();
-
-                if (attack.buffAttack) buffRuntime.ModifyAttack(attack.buffAttackAmount);
-                if (attack.buffDefense) buffRuntime.ModifyDefense(attack.buffDefenseAmount);
-                if (attack.buffSpeed) buffRuntime.ModifySpeed(attack.buffSpeedAmount);
-
-                if (attack.debuffAttack) buffRuntime.ModifyAttack(-attack.debuffAttackAmount);
-                if (attack.debuffDefense) buffRuntime.ModifyDefense(-attack.debuffDefenseAmount);
-                if (attack.debuffSpeed) buffRuntime.ModifySpeed(-attack.debuffSpeedAmount);
-
-                // Apply status effect if any
-                if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
-                    buffRuntime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
-            }
-
-            Debug.Log($"✨ {attacker.characterData.characterName} used {attack.attackName} on {buffTargets.Count} target(s)!");
-            return;
-        }
-
-        // === Determine targets (AoE or single) for damage moves ===
-        List<CharacterBattleController> targets = new List<CharacterBattleController>();
-        if (attack.isAoE)
-        {
-            targets.AddRange(enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive));
-        }
-        else
-        {
-            targets.Add(target);
-        }
-
-        // --- Apply damage to targets ---
-        bool appliedSelfEffects = false; // ensure self effects only apply once (important for AoE)
-        foreach (var tgt in targets)
-        {
-            if (!tgt.GetRuntimeCharacter().IsAlive) continue;
-
-            int diceRoll = (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
-                ? Random.Range(runtime.nextDiceMin, runtime.nextDiceMax + 1)
-                : Random.Range(attack.diceMin, attack.diceMax + 1);
-
-           int usedPower = attack.power;
-
-        // If this move is "Showdown", roll its power for this use only (do NOT mutate AttackData)
-        if (attack.attackName == "Showdown")
-            {
-            usedPower = (Random.value <= 0.5f) ? 100 : 20;
-            Debug.Log($"🎲 {attacker.characterData.characterName} uses Showdown! Power rolled: {usedPower}");
-            }
-
-            int baseDamage = Mathf.Max(1, attack.power + runtime.Attack - tgt.GetRuntimeCharacter().Defense / 2);
-
-            if (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
-                runtime.ResetNextDiceRange();
-
-            float multiplier = diceRoll >= 8 ? 1.25f : diceRoll <= 3 ? 0.75f : 1f;
-
-            // === Hardcoded Stance Effects ===
-            if (attacker.InStance)
-            {
-                switch (attack.attackName)
-                {
-                    case "Ichimonji":
-                        multiplier *= 2f;
-                        Debug.Log($"🌀 {attacker.characterData.characterName} deals double damage with Ichimonji while in stance!");
-                        break;
-                    case "Quick Slash":
-                        if (Random.value <= attack.effectChance)
-                        {
-                            tgt.GetRuntimeCharacter().ApplyStatusEffect(AttackEffectType.Poison, attack.effectDuration);
-                            Debug.Log($"☠️ {attacker.characterData.characterName}'s Quick Slash poisons {tgt.characterData.characterName} while in stance!");
-                        }
-                        break;
-                }
-            }
-
-            if (runtime.nextAttackMultiplier != 1f)
-            {
-                multiplier *= runtime.ConsumeAttackMultiplier();
-            }
-
-            int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
-
-            // === Fallen enemies scaling (Mortal-like) ===
-            if (attack.scalesWithFallenEnemies)
-            {
-                int fallenEnemies = enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
-                float tempMultiplier = 1f + fallenEnemies * attack.fallenEnemiesMultiplier;
-                finalDamage = Mathf.RoundToInt(finalDamage * tempMultiplier);
-                Debug.Log($"🔥 {attacker.characterData.characterName}'s {attack.attackName} scaled with {fallenEnemies} fallen enemies! New damage: {finalDamage}");
-            }
-
-            // === Fallen allies scaling (Vengeance-like) ===
-            if (attack.scalesWithFallenAllies)
-            {
-                int fallenAllies = attacker.isPlayer
-                    ? playerControllers.FindAll(p => !p.GetRuntimeCharacter().IsAlive).Count
-                    : enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
-
-                float alliesMultiplier = 1f + fallenAllies * attack.fallenAlliesMultiplier;
-                finalDamage = Mathf.RoundToInt(finalDamage * alliesMultiplier);
-                Debug.Log($"🔥 {attacker.characterData.characterName}'s {attack.attackName} scaled with {fallenAllies} fallen allies! New damage: {finalDamage}");
-            }
-
-            int damageDealt = tgt.GetRuntimeCharacter().TakeDamage(finalDamage, runtime);
-
-            string hitType = multiplier > 1f ? "💥 Strong Hit!" : multiplier < 1f ? "🩹 Weak Hit!" : "⚔️ Normal Hit!";
-            Debug.Log($"🎲 Dice Roll: {diceRoll} → {hitType}");
-            Debug.Log($"⚔️ {attacker.characterData.characterName} dealt {damageDealt} damage to {tgt.characterData.characterName} using {attack.attackName}");
-
-            // === Life Leech ===
-            if (attack.isLifeLeech)
-            {
-                int healAmount = Mathf.RoundToInt(damageDealt * attack.lifeLeechPercent);
-                runtime.Heal(healAmount);
-                Debug.Log($"🩸 {attacker.characterData.characterName} healed {healAmount} HP from Life Leech!");
-            }
-
-            // === Optional buffs/debuffs applied to caster or self-targeting ===
-            if (attack.applyEffectsToSelf && !attack.manualBuffTargetSelection)
-            {
-                if (!appliedSelfEffects)
-                {
-                    if (attack.buffAttack) runtime.ModifyAttack(attack.buffAttackAmount);
-                    if (attack.buffDefense) runtime.ModifyDefense(attack.buffDefenseAmount);
-                    if (attack.buffSpeed) runtime.ModifySpeed(attack.buffSpeedAmount);
-
-                    if (attack.debuffAttack) runtime.ModifyAttack(-attack.debuffAttackAmount);
-                    if (attack.debuffDefense) runtime.ModifyDefense(-attack.debuffDefenseAmount);
-                    if (attack.debuffSpeed) runtime.ModifySpeed(-attack.debuffSpeedAmount);
-
-                    if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
-                        runtime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
-
-                    appliedSelfEffects = true;
-                    Debug.Log($"🔁 {attacker.characterData.characterName} received self-effects from {attack.attackName}.");
-                }
-            }
-            else if (attack.manualBuffTargetSelection)
-            {
-                // Manual buff selection assumed handled earlier (UI)
-            }
-            else
-            {
-                var buffTargetNormal = tgt.GetRuntimeCharacter();
-
-                if (attack.buffAttack) buffTargetNormal.ModifyAttack(attack.buffAttackAmount);
-                if (attack.buffDefense) buffTargetNormal.ModifyDefense(attack.buffDefenseAmount);
-                if (attack.buffSpeed) buffTargetNormal.ModifySpeed(attack.buffSpeedAmount);
-
-                if (attack.debuffAttack) buffTargetNormal.ModifyAttack(-attack.debuffAttackAmount);
-                if (attack.debuffDefense) buffTargetNormal.ModifyDefense(-attack.debuffDefenseAmount);
-                if (attack.debuffSpeed) buffTargetNormal.ModifySpeed(-attack.debuffSpeedAmount);
-
-                if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
-                    buffTargetNormal.ApplyStatusEffect(attack.effectType, attack.effectDuration);
-            }
-
-            // === XP Gain handled after animation in PerformAttackCoroutine when using that flow ===
-        }
-
-        // Note: consumed remains true for players (unless refunded earlier); no extra action needed here.
+        Debug.Log($"💫 {attacker.characterData.characterName} is stunned and skips their turn!");
+        return (0, "", 0);
     }
 
-    // Coroutine version used by ResolveActions so we can animate healthbars and fade characters
+    bool consumed = false;
+    if (attacker.isPlayer)
+    {
+        if (attack.currentUsage <= 0)
+        {
+            Debug.LogWarning($"⚠️ {attacker.characterData.characterName} tried to use {attack.attackName} but has no uses left!");
+            return (0, "", 0);
+        }
+        attack.currentUsage--;
+        consumed = true;
+    }
+
+    // We'll capture the first dice/hit/damage we encounter to show in the UI
+    int firstDice = 0;
+    string firstHitType = "";
+    int firstDamage = 0;
+    bool recordedFirst = false;
+
+    // --- Hardcoded moves that do not roll dice ---
+    if (attack.attackName == "Cosmic Corruptor")
+    {
+        var targetRuntime = target.GetRuntimeCharacter();
+        targetRuntime.ApplyStatusEffect(AttackEffectType.Burn, 3);
+        targetRuntime.ApplyStatusEffect(AttackEffectType.Poison, 3);
+        int damageDealt = targetRuntime.TakeDamage(40, attacker.GetRuntimeCharacter());
+        Debug.Log($"☄️ {attacker.characterData.characterName} used Cosmic Corruptor on {target.characterData.characterName}, dealing {damageDealt} damage and applying Burn & Poison for 3 turns!");
+        return (0, "", damageDealt);
+    }
+
+    if (attack.attackName == "Ashina Stance")
+    {
+        attacker.EnterStance(2);
+        Debug.Log($"🧘‍♂️ {attacker.characterData.characterName} uses Ashina Stance! No damage dealt, preparing for next move.");
+        return (0, "", 0);
+    }
+
+    if (attack.attackName == "Assassinate")
+    {
+        var attackerRuntime = attacker.GetRuntimeCharacter();
+        target.GetRuntimeCharacter().ApplyTemporaryMark(attackerRuntime, 2.5f, 1);
+        Debug.Log($"🎯 {attacker.characterData.characterName} marked {target.characterData.characterName} for Assassination!");
+        return (0, "", 0);
+    }
+
+    if (attack.attackName == "Purgatory")
+    {
+        var attackerRuntime = attacker.GetRuntimeCharacter();
+        var targetRuntime = target.GetRuntimeCharacter();
+        if (!targetRuntime.IsAlive)
+        {
+            Debug.LogWarning("⚠️ Invalid target for Purgatory!");
+            return (0, "", 0);
+        }
+        float hpRatio = Mathf.Clamp01((float)attackerRuntime.currentHP / attackerRuntime.MaxHP);
+        float damageMultiplier = 1f + (1f - hpRatio) * 2f; // up to 3x
+        int baseDamage = Mathf.Max(1, attack.power + attackerRuntime.Attack - targetRuntime.Defense / 2);
+        int finalDamage = Mathf.RoundToInt(baseDamage * damageMultiplier);
+        int damageDealt = targetRuntime.TakeDamage(finalDamage, attackerRuntime);
+        Debug.Log($"🔥 {attacker.characterData.characterName} unleashes PURGATORY! ({Mathf.RoundToInt(damageMultiplier * 100f)}% power) -> {damageDealt} dmg");
+        if (attack.isLifeLeech)
+        {
+            int healAmount = Mathf.RoundToInt(damageDealt * attack.lifeLeechPercent);
+            attackerRuntime.Heal(healAmount);
+            Debug.Log($"🩸 {attacker.characterData.characterName} absorbed {healAmount} HP from Purgatory!");
+        }
+        return (0, "", damageDealt);
+    }
+
+    // Healing move (no dice)
+    if (attack.healsTarget)
+    {
+        if (!target.GetRuntimeCharacter().IsAlive)
+        {
+            if (consumed && attacker.isPlayer)
+            {
+                attack.currentUsage++;
+                consumed = false;
+            }
+            Debug.LogWarning("⚠️ Invalid target for healing!");
+            return (0, "", 0);
+        }
+
+        int healAmount = Mathf.RoundToInt(attack.power + runtime.Attack * 0.5f);
+        target.GetRuntimeCharacter().Heal(healAmount);
+        Debug.Log($"💚 {attacker.characterData.characterName} healed {target.characterData.characterName} for {healAmount} HP using {attack.attackName}!");
+        return (0, "", 0);
+    }
+
+    // Non-damage/setup/buffs (no dice)
+    if (attack.isNonDamageMove)
+    {
+        if (attack.modifiesNextDice)
+            runtime.SetNextDiceRange(attack.nextDiceMin, attack.nextDiceMax);
+        if (attack.modifiesNextAttack)
+            runtime.SetNextAttackMultiplier(attack.nextAttackMultiplier);
+
+        List<CharacterBattleController> buffTargets = new List<CharacterBattleController>();
+        if (attack.isAoE)
+            buffTargets.AddRange(playerControllers.FindAll(p => p.GetRuntimeCharacter().IsAlive));
+        else if (attack.manualBuffTargetSelection)
+            buffTargets.Add(target);
+        else if (attack.affectsSelf)
+            buffTargets.Add(attacker);
+        else
+            buffTargets.Add(target);
+
+        foreach (var buff in buffTargets)
+        {
+            var buffRuntime = buff.GetRuntimeCharacter();
+            if (attack.buffAttack) buffRuntime.ModifyAttack(attack.buffAttackAmount);
+            if (attack.buffDefense) buffRuntime.ModifyDefense(attack.buffDefenseAmount);
+            if (attack.buffSpeed) buffRuntime.ModifySpeed(attack.buffSpeedAmount);
+
+            if (attack.debuffAttack) buffRuntime.ModifyAttack(-attack.debuffAttackAmount);
+            if (attack.debuffDefense) buffRuntime.ModifyDefense(-attack.debuffDefenseAmount);
+            if (attack.debuffSpeed) buffRuntime.ModifySpeed(-attack.debuffSpeedAmount);
+
+            if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                buffRuntime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+        }
+
+        Debug.Log($"✨ {attacker.characterData.characterName} used {attack.attackName} on {buffTargets.Count} target(s)!");
+        return (0, "", 0);
+    }
+
+    // --- DAMAGE moves (one or many targets) ---
+    List<CharacterBattleController> targets = new List<CharacterBattleController>();
+    if (attack.isAoE)
+        targets.AddRange(enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive));
+    else
+        targets.Add(target);
+
+    bool appliedSelfEffects = false;
+    foreach (var tgt in targets)
+    {
+        if (!tgt.GetRuntimeCharacter().IsAlive) continue;
+
+        int diceRoll = (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
+            ? Random.Range(runtime.nextDiceMin, runtime.nextDiceMax + 1)
+            : Random.Range(attack.diceMin, attack.diceMax + 1);
+
+        int usedPower = attack.power;
+        if (attack.attackName == "Showdown")
+        {
+            usedPower = (Random.value <= 0.5f) ? 100 : 20;
+            Debug.Log($"🎲 {attacker.characterData.characterName} uses Showdown! Power rolled: {usedPower}");
+        }
+
+        // 🎯 NEW SECTION — Handle Miss
+        if (diceRoll == 1)
+        {
+            Debug.Log($"❌ {attacker.characterData.characterName}'s attack MISSED {tgt.characterData.characterName}!");
+            if (!recordedFirst)
+            {
+                firstDice = diceRoll;
+                firstHitType = "Miss!";
+                firstDamage = 0;
+                recordedFirst = true;
+            }
+            // skip this target entirely — no damage or effects
+            continue;
+        }
+
+        int baseDamage = Mathf.Max(1, usedPower + runtime.Attack - tgt.GetRuntimeCharacter().Defense / 2);
+
+        if (runtime.nextDiceMin > 0 && runtime.nextDiceMax > 0)
+            runtime.ResetNextDiceRange();
+
+        float multiplier = diceRoll >= 8 ? 1.25f : diceRoll <= 3 ? 0.75f : 1f;
+
+        // Stance special effects
+        if (attacker.InStance)
+        {
+            switch (attack.attackName)
+            {
+                case "Ichimonji":
+                    multiplier *= 2f;
+                    Debug.Log($"🌀 {attacker.characterData.characterName} deals double damage with Ichimonji while in stance!");
+                    break;
+                case "Quick Slash":
+                    if (Random.value <= attack.effectChance)
+                    {
+                        tgt.GetRuntimeCharacter().ApplyStatusEffect(AttackEffectType.Poison, attack.effectDuration);
+                        Debug.Log($"☠️ {attacker.characterData.characterName}'s Quick Slash poisons {tgt.characterData.characterName} while in stance!");
+                    }
+                    break;
+            }
+        }
+
+        if (runtime.nextAttackMultiplier != 1f)
+            multiplier *= runtime.ConsumeAttackMultiplier();
+
+        int finalDamage = Mathf.RoundToInt(baseDamage * multiplier);
+
+        // Fallen-scaling etc.
+        if (attack.scalesWithFallenEnemies)
+        {
+            int fallenEnemies = enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
+            float tempMultiplier = 1f + fallenEnemies * attack.fallenEnemiesMultiplier;
+            finalDamage = Mathf.RoundToInt(finalDamage * tempMultiplier);
+        }
+
+        if (attack.scalesWithFallenAllies)
+        {
+            int fallenAllies = attacker.isPlayer
+                ? playerControllers.FindAll(p => !p.GetRuntimeCharacter().IsAlive).Count
+                : enemyControllers.FindAll(e => !e.GetRuntimeCharacter().IsAlive).Count;
+            float alliesMultiplier = 1f + fallenAllies * attack.fallenAlliesMultiplier;
+            finalDamage = Mathf.RoundToInt(finalDamage * alliesMultiplier);
+        }
+
+        int damageDealt = tgt.GetRuntimeCharacter().TakeDamage(finalDamage, runtime);
+
+        // record the first dice/hit/damage for UI
+        if (!recordedFirst)
+        {
+            firstDice = diceRoll;
+            firstHitType = multiplier > 1f ? "Strong Hit!" : multiplier < 1f ? "Weak Hit!" : "Normal Hit!";
+            if (firstDice == 1)
+                firstHitType = "Miss!";
+            firstDamage = damageDealt;
+            recordedFirst = true;
+        }
+
+        string hitTypeLog = multiplier > 1f ? "💥 Strong Hit!" : multiplier < 1f ? "🩹 Weak Hit!" : "⚔️ Normal Hit!";
+        if (diceRoll == 1) hitTypeLog = "❌ Miss!";
+        Debug.Log($"🎲 Dice Roll: {diceRoll} → {hitTypeLog}");
+        Debug.Log($"⚔️ {attacker.characterData.characterName} dealt {damageDealt} damage to {tgt.characterData.characterName} using {attack.attackName}");
+
+        if (attack.isLifeLeech)
+        {
+            int healAmount = Mathf.RoundToInt(damageDealt * attack.lifeLeechPercent);
+            runtime.Heal(healAmount);
+            Debug.Log($"🩸 {attacker.characterData.characterName} healed {healAmount} HP from Life Leech!");
+        }
+
+        // apply self/target buffs & status effects (kept identical to original logic)
+        if (attack.applyEffectsToSelf && !attack.manualBuffTargetSelection)
+        {
+            if (!appliedSelfEffects)
+            {
+                if (attack.buffAttack) runtime.ModifyAttack(attack.buffAttackAmount);
+                if (attack.buffDefense) runtime.ModifyDefense(attack.buffDefenseAmount);
+                if (attack.buffSpeed) runtime.ModifySpeed(attack.buffSpeedAmount);
+
+                if (attack.debuffAttack) runtime.ModifyAttack(-attack.debuffAttackAmount);
+                if (attack.debuffDefense) runtime.ModifyDefense(-attack.debuffDefenseAmount);
+                if (attack.debuffSpeed) runtime.ModifySpeed(-attack.debuffSpeedAmount);
+
+                if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                    runtime.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+
+                appliedSelfEffects = true;
+            }
+        }
+        else if (!attack.manualBuffTargetSelection)
+        {
+            var buffTargetNormal = tgt.GetRuntimeCharacter();
+            if (attack.buffAttack) buffTargetNormal.ModifyAttack(attack.buffAttackAmount);
+            if (attack.buffDefense) buffTargetNormal.ModifyDefense(attack.buffDefenseAmount);
+            if (attack.buffSpeed) buffTargetNormal.ModifySpeed(attack.buffSpeedAmount);
+
+            if (attack.debuffAttack) buffTargetNormal.ModifyAttack(-attack.debuffAttackAmount);
+            if (attack.debuffDefense) buffTargetNormal.ModifyDefense(-attack.debuffDefenseAmount);
+            if (attack.debuffSpeed) buffTargetNormal.ModifySpeed(-attack.debuffSpeedAmount);
+
+            if (attack.effectType != AttackEffectType.None && Random.value <= attack.effectChance)
+                buffTargetNormal.ApplyStatusEffect(attack.effectType, attack.effectDuration);
+        }
+
+        // XP will be handled by coroutine wrapper once animation completes
+    }
+
+    // return first dice/hit/damage (or zeros if none)
+    return (firstDice, firstHitType, firstDamage);
+}
+
+
     private IEnumerator PerformAttackCoroutine(CharacterBattleController attacker, CharacterBattleController target, AttackData attack)
     {
         if (attacker == null || target == null || attack == null) yield break;
@@ -784,39 +833,41 @@ public class BattleManager : MonoBehaviour
         var attackerRuntime = attacker.GetRuntimeCharacter();
         var targetRuntime = target.GetRuntimeCharacter();
 
-        // Handle special one-off moves here first (so animations / hp display match the chosen behavior)
-        // We'll use PerformAttack to apply logic to runtime, but since PerformAttack may return early
-        // we need to replicate dice/hit logic for regular attacks to show messages consistently.
-        // For simplicity, call PerformAttack to mutate runtimes / status effects / damage.
-        // But we must still animate the healthbar and handle FadeAndRemove afterwards.
+        // Apply attack logic and capture first dice/hit/damage for UI reveal
+        var result = PerformAttack(attacker, target, attack);
 
-        // Run PerformAttack (which directly applies damage/status to runtimes)
-        PerformAttack(attacker, target, attack);
+        // Announce the attack using queued messages
+        yield return StartCoroutine(ShowBattleMessage($"{attacker.characterData.characterName} used {attack.attackName}!"));
 
-        // After PerformAttack call, animate healthbar (if present)
-        if (healthbarMap.TryGetValue(target, out var hb))
+        if (result.diceRoll > 0)
         {
-            float finalPercent = targetRuntime.runtimeHP > 0 ? (float)targetRuntime.currentHP / targetRuntime.runtimeHP : 0f;
-            bool useXPFirst = target.isPlayer; // players show xp-first, enemies skip
-            yield return StartCoroutine(hb.AnimateDamageSequence(finalPercent, useXPFirst));
-        }
-        else
-        {
-            // small delay to preserve pacing
-            yield return new WaitForSeconds(0.25f);
+            yield return StartCoroutine(ShowBattleMessage($"{attacker.characterData.characterName} rolled a {result.diceRoll}! - {result.hitType}"));
         }
 
         // small hit shake (run in parallel)
         StartCoroutine(HitShake(target.transform));
 
-        // Handle death and XP
+        // Animate the target's healthbar if present
+        if (healthbarMap.TryGetValue(target, out var hb))
+        {
+            float finalPercent = targetRuntime.runtimeHP > 0 ? (float)targetRuntime.currentHP / targetRuntime.runtimeHP : 0f;
+            bool useXPFirst = target.isPlayer;
+            yield return StartCoroutine(hb.AnimateDamageSequence(finalPercent, useXPFirst));
+        }
+        else
+        {
+            yield return new WaitForSeconds(0.25f);
+        }
+
+        // Handle death and XP after animations
         if (!targetRuntime.IsAlive)
         {
             Debug.Log($"💀 {target.characterData.characterName} fainted!");
+            yield return StartCoroutine(ShowBattleMessage($"{target.characterData.characterName} fainted!"));
+
             if (attacker.isPlayer && expSystem != null)
                 expSystem.GrantXP(target.characterData);
 
-            // remove healthbar mapping if still present (FadeAndRemove will also try to do it)
             if (healthbarMap.ContainsKey(target))
             {
                 var hbToRemove = healthbarMap[target];
@@ -824,13 +875,12 @@ public class BattleManager : MonoBehaviour
                 if (hbToRemove != null) Destroy(hbToRemove.gameObject);
             }
 
-            // start fade and remove of character sprite
             yield return StartCoroutine(FadeAndRemove(target));
 
-            // recruitment special case as before (if applicable)
             if (isRecruitmentBattle && recruitTarget == target)
             {
                 Debug.Log($"❌ Recruit {recruitTarget.characterData.characterName} was defeated and will not return.");
+                yield return StartCoroutine(ShowBattleMessage($"Recruit {recruitTarget.characterData.characterName} was defeated and will not return."));
                 if (FindObjectOfType<RecruitmentManager>() != null)
                     FindObjectOfType<RecruitmentManager>().ResetRecruitment();
                 recruitTarget = null;
@@ -841,25 +891,32 @@ public class BattleManager : MonoBehaviour
     }
 
     // ==========================================================
-    // Helpers (Fade, Shake etc.)
+    // Fade / shake / removal helpers
     // ==========================================================
     private IEnumerator FadeAndRemove(CharacterBattleController target)
     {
         if (target == null) yield break;
 
         var sr = target.GetComponent<SpriteRenderer>();
-        var selector = target.GetComponent<EnemySelector>();
-        if (selector != null) selector.Highlight(false);
+
+        // Try EnemySelector first, then TargetSelector
+        var enemySelector = target.GetComponent<EnemySelector>();
+        if (enemySelector != null)
+        {
+            enemySelector.Highlight(false);
+        }
+        else
+        {
+            var targetSelector = target.GetComponent<TargetSelector>();
+            if (targetSelector != null) targetSelector.Highlight(false);
+        }
 
         if (sr != null)
         {
             Color c = sr.color;
             for (float t = 0f; t < 1f; t += Time.deltaTime)
             {
-                // check each frame that the renderer still exists
-                if (sr == null || target == null)
-                    yield break;
-
+                if (sr == null || target == null) yield break;
                 c.a = Mathf.Lerp(1f, 0f, t);
                 sr.color = c;
                 yield return null;
@@ -869,13 +926,10 @@ public class BattleManager : MonoBehaviour
         if (healthbarMap.TryGetValue(target, out var hbToDestroy))
         {
             healthbarMap.Remove(target);
-            if (hbToDestroy != null)
-                Destroy(hbToDestroy.gameObject);
+            if (hbToDestroy != null) Destroy(hbToDestroy.gameObject);
         }
 
-        // Safety check before destroying
-        if (target != null)
-            Destroy(target.gameObject);
+        if (target != null) Destroy(target.gameObject);
     }
 
     private IEnumerator HitShake(Transform target)
@@ -902,16 +956,28 @@ public class BattleManager : MonoBehaviour
         return true;
     }
 
+    // ==========================================================
+    // Victory / post-battle flow
+    // ==========================================================
     private IEnumerator HandleVictory(List<CharacterBattleController> defeatedEnemies)
     {
         Debug.Log("🏆 Victory! All enemies defeated!");
+        yield return StartCoroutine(ShowBattleMessage("Victory! All enemies defeated!"));
+
         battleActive = false;
 
         foreach (var enemy in defeatedEnemies)
         {
             if (enemy == null) continue;
-            var selector = enemy.GetComponent<EnemySelector>();
-            if (selector != null) selector.DisableSelection();
+
+            var enemySel = enemy.GetComponent<EnemySelector>();
+            if (enemySel != null) enemySel.DisableSelection();
+            else
+            {
+                var targetSel = enemy.GetComponent<TargetSelector>();
+                if (targetSel != null) targetSel.DisableSelection();
+            }
+
             StartCoroutine(FadeAndRemove(enemy));
         }
 
@@ -922,13 +988,10 @@ public class BattleManager : MonoBehaviour
         Debug.Log("🎉 Battle complete! XP distributed successfully!");
         Debug.Log("--------------------------------------------------------");
 
-        // After battle, process any pending level-up move prompts (one after another).
+        // After battle, process any pending level-up move prompts sequentially
         if (expSystem != null)
         {
-            // This coroutine sets IsProcessingLevelUps while running.
             yield return StartCoroutine(expSystem.ProcessPendingMovePrompts());
-
-            // After processing, persist any updates (moves/stats)
             if (PersistentPlayerData.Instance != null)
                 PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
         }
@@ -941,12 +1004,11 @@ public class BattleManager : MonoBehaviour
             if (uiManager != null) uiManager.SetPersuadeButtonActive(false);
         }
 
-        if (encounterManager != null)
-            encounterManager.EndEncounter();
+        if (encounterManager != null) encounterManager.EndEncounter();
     }
 
     // ==========================================================
-    // Persuasion (recruit) processing
+    // Persuasion / recruitment
     // ==========================================================
     public void TryPersuade(CharacterBattleController explicitTarget)
     {
@@ -963,28 +1025,29 @@ public class BattleManager : MonoBehaviour
         }
 
         recruitTarget = explicitTarget;
-        TryPersuade();
+        StartCoroutine(TryPersuade());
     }
 
-    public void TryPersuade()
+    public IEnumerator TryPersuade()
     {
         if (!isRecruitmentBattle || recruitTarget == null)
         {
             Debug.Log("❌ No recruitment target!");
-            return;
+            yield break;
         }
 
         if (persuadeAttempts >= maxPersuadeAttempts)
         {
             Debug.Log("😤 You've used all your persuasion attempts!");
+            yield return StartCoroutine(ShowBattleMessage("You've used all your persuasion attempts!"));
             StartCoroutine(FinishRecruitment(false));
-            return;
+            yield break;
         }
 
         persuadeAttempts++;
 
         var targetRuntime = recruitTarget.GetRuntimeCharacter();
-        float hpRatio = targetRuntime.runtimeHP > 0 ? (float)targetRuntime.currentHP / targetRuntime.runtimeHP : 0f; // 0..1
+        float hpRatio = targetRuntime.runtimeHP > 0 ? (float)targetRuntime.currentHP / targetRuntime.runtimeHP : 0f;
 
         float persuasionChance;
         if (hpRatio <= 0.02f) persuasionChance = 0.99f;
@@ -999,10 +1062,12 @@ public class BattleManager : MonoBehaviour
         else persuasionChance = 0.05f;
 
         Debug.Log($"🎯 Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%");
+        yield return StartCoroutine(ShowBattleMessage($"Persuasion attempt {persuadeAttempts}/{maxPersuadeAttempts} — HP {hpRatio * 100f:0.0}% → chance {(persuasionChance * 100f):0.0}%"));
 
         if (Random.value < persuasionChance)
         {
             Debug.Log("💖 Recruitment successful!");
+            yield return StartCoroutine(ShowBattleMessage("Recruitment successful!"));
             StartCoroutine(HandleRecruitmentSuccess());
         }
         else
@@ -1016,9 +1081,6 @@ public class BattleManager : MonoBehaviour
         }
     }
 
-    // ==========================================================
-    // Recruit success/failure flows
-    // ==========================================================
     private IEnumerator HandleRecruitmentSuccess()
     {
         yield return new WaitForSeconds(0.6f);
@@ -1045,6 +1107,7 @@ public class BattleManager : MonoBehaviour
         {
             PersistentPlayerData.Instance.UpdateFromRuntime(recruitRuntime);
             Debug.Log($"🎉 {recruitRuntime.baseData.characterName} joined your team!");
+            yield return StartCoroutine(ShowBattleMessage($"{recruitRuntime.baseData.characterName} joined your team!"));
             PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
             yield return StartCoroutine(FinishRecruitment(true));
             yield break;
@@ -1052,6 +1115,7 @@ public class BattleManager : MonoBehaviour
         else
         {
             Debug.Log("⚠️ Team full — press 1, 2 or 3 to replace a member.");
+            yield return StartCoroutine(ShowBattleMessage($"Team full — press 1, 2 or 3 to replace a member."));
             bool replaced = false;
             while (!replaced)
             {
@@ -1095,38 +1159,55 @@ public class BattleManager : MonoBehaviour
         if (uiManager != null) uiManager.SetPersuadeButtonActive(false);
         if (PersistentPlayerData.Instance != null) PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
 
-        // If failed, fade & remove recruit (runs away)
         if (!success && recruitTarget != null)
         {
             Debug.Log($"💨 {recruitTarget.characterData.characterName} ran away after failed persuasion!");
             yield return StartCoroutine(FadeAndRemove(recruitTarget));
         }
 
+        // Clear message panel quickly
+        if (messageUI != null) messageUI.HideInstant();
+
         yield return new WaitForSeconds(0.3f);
 
-        // If all enemies gone, end encounter
         if (AreAllDead(enemyControllers))
         {
             yield return StartCoroutine(HandleVictory(enemyControllers));
         }
         else
         {
-            // Remove recruit target from enemyControllers if still present
             enemyControllers.Remove(recruitTarget);
+
+            if (!AreAllDead(enemyControllers))
+            {
+                if (!battleActive)
+                {
+                    battleActive = true;
+                    StartCoroutine(BattleLoop());
+                }
+
+                if (uiManager != null)
+                {
+                    uiManager.SetPersuadeButtonActive(isRecruitmentBattle);
+                    if (playerChoiceIndex >= 0 && playerChoiceIndex < playerControllers.Count)
+                    {
+                        uiManager.playerController = playerControllers[playerChoiceIndex];
+                        uiManager.ShowMainActions();
+                    }
+                }
+            }
         }
     }
 
-    /// <summary>
-    /// Cleans up any leftover character prefabs or clones from the previous battle.
-    /// </summary>
+    // ==========================================================
+    // Cleanup prior to starting (destroy leftovers)
+    // ==========================================================
     private void CleanupOldInstances()
     {
         Debug.Log("🧹 Cleaning up old BattleManager instances and spawned characters...");
 
-        // 1️⃣ Clean characters left under spawn points
         ClearSpawnedCharacters();
 
-        // 2️⃣ Destroy all CharacterBattleControllers in scene that aren’t part of this new battle
         var oldControllers = FindObjectsOfType<CharacterBattleController>();
         foreach (var c in oldControllers)
         {
@@ -1139,7 +1220,7 @@ public class BattleManager : MonoBehaviour
             {
                 foreach (Transform p in playerSpawnPoints)
                 {
-                    if (c.transform.IsChildOf(p))
+                    if (p != null && c.transform.IsChildOf(p))
                     {
                         isUnderPlayerSpawn = true;
                         break;
@@ -1151,7 +1232,7 @@ public class BattleManager : MonoBehaviour
             {
                 foreach (Transform e in enemySpawnPoints)
                 {
-                    if (c.transform.IsChildOf(e))
+                    if (e != null && c.transform.IsChildOf(e))
                     {
                         isUnderEnemySpawn = true;
                         break;
@@ -1162,21 +1243,21 @@ public class BattleManager : MonoBehaviour
             if (!isUnderPlayerSpawn && !isUnderEnemySpawn)
             {
                 Debug.Log($"🗑️ Destroying leftover character prefab: {c.name}");
-                DestroyImmediate(c.gameObject);
+                DestroyImmediateOrRuntime(c.gameObject);
             }
         }
 
-        // 3️⃣ Clear local controller lists
         playerControllers.Clear();
         enemyControllers.Clear();
 
-        // 4️⃣ Also make sure we don't have any pending coroutines running from old battles
         StopAllCoroutines();
 
         Debug.Log("✅ Cleanup complete. Scene ready for new battle.");
     }
 
-    // Background fading helper
+    // ==========================================================
+    // Background fade helper
+    // ==========================================================
     private IEnumerator FadeRegionBackground(RegionData newRegion)
     {
         if (backgroundImageUI == null)
@@ -1215,5 +1296,170 @@ public class BattleManager : MonoBehaviour
         }
 
         backgroundImageUI.color = endColor;
+    }
+
+    // ==========================================================
+    // Message queueing (safe, sequential messages)
+    // ==========================================================
+    /// <summary>
+    /// Enqueue a message and optionally block until it has been displayed (typewriter + wait).
+    /// Use blocking=true to wait until the message fully finishes.
+    /// </summary>
+    public IEnumerator ShowBattleMessage(string text, bool blocking = true)
+    {
+        if (messageUI == null)
+        {
+            Debug.LogWarning("⚠️ messageUI not assigned!");
+            yield break;
+        }
+
+        var req = new MessageRequest { text = text, completed = false };
+        messageQueue.Enqueue(req);
+
+        if (!processingMessageQueue)
+            StartCoroutine(ProcessMessageQueue());
+
+        if (blocking)
+            yield return new WaitUntil(() => req.completed);
+        else
+            yield break;
+    }
+
+ private IEnumerator ProcessMessageQueue()
+{
+    if (processingMessageQueue) yield break;
+    processingMessageQueue = true;
+
+    while (messageQueue.Count > 0)
+    {
+        var req = messageQueue.Dequeue();
+        if (req == null) continue;
+
+        // Ensure the message UI GameObject is active so its coroutines won't fail.
+        if (messageUI != null && messageUI.gameObject != null && !messageUI.gameObject.activeInHierarchy)
+            messageUI.gameObject.SetActive(true);
+
+        // Stop any previously-running typed coroutine started by BattleManager.
+        if (activeMessageCoroutine != null)
+        {
+            try { StopCoroutine(activeMessageCoroutine); } catch { }
+            activeMessageCoroutine = null;
+        }
+
+        // Completion flags used to wait for both UI and TTS to finish.
+        bool typedDone = false;
+        bool ttsDone = false;
+
+        // Local helper: run a coroutine and set a completion flag when it returns.
+        IEnumerator RunAndMark(IEnumerator job, System.Action markDone)
+        {
+            yield return StartCoroutine(job);
+            try { markDone?.Invoke(); } catch { }
+        }
+
+        // --- Start typed UI coroutine (if available) ---
+        bool startedTyped = false;
+        if (messageUI != null)
+        {
+            try
+            {
+                activeMessageCoroutine = StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
+                startedTyped = true;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
+                typedDone = true; // mark as done so we don't wait forever
+                activeMessageCoroutine = null;
+            }
+        }
+        else
+        {
+            typedDone = true;
+        }
+
+        // --- Start TTS coroutine in parallel if a MurfTTSStream exists ---
+        var tts = FindObjectOfType<MurfTTSStream>();
+        if (tts != null)
+        {
+            try
+            {
+                // contextId and padding can be adjusted as needed.
+                string ttsContext = "battle";
+                float ttsPadding = 0.12f; // small padding to avoid cutting at end
+                StartCoroutine(RunAndMark(tts.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding), () => ttsDone = true));
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"⚠️ Failed to start TTS for message '{req.text}': {ex.Message}");
+                ttsDone = true;
+            }
+        }
+        else
+        {
+            // No TTS available — mark done immediately.
+            ttsDone = true;
+        }
+
+        // If typed coroutine couldn't start, show instantly as a fallback so the player sees the message.
+        if (!startedTyped && messageUI != null)
+        {
+            try
+            {
+                messageUI.ShowMessageInstant(req.text);
+            }
+            catch
+            {
+                Debug.Log(req.text);
+            }
+
+            // small readability delay for instant fallback
+            yield return new WaitForSeconds(0.45f);
+        }
+
+        // Wait until both finished or a safety timeout expires.
+        float safetyTimeout = 12f; // seconds (adjust if needed)
+        float elapsed = 0f;
+        while (!(typedDone && ttsDone) && elapsed < safetyTimeout)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (!(typedDone && ttsDone))
+        {
+            Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
+        }
+
+        // Clear active reference (we no longer consider the typed coroutine active here).
+        activeMessageCoroutine = null;
+
+        // Mark request as completed so callers waiting on this request can continue.
+        req.completed = true;
+
+        // tiny buffer to avoid immediate back-to-back flashes
+        yield return null;
+    }
+
+    processingMessageQueue = false;
+}
+
+
+    /// <summary>
+    /// Cancel any currently queued or running messages and hide message UI instantly.
+    /// </summary>
+    public void CancelAndHideBattleMessage()
+    {
+        messageQueue.Clear();
+
+        try { StopCoroutine(ProcessMessageQueue()); } catch { }
+
+        if (activeMessageCoroutine != null)
+        {
+            try { StopCoroutine(activeMessageCoroutine); } catch { }
+            activeMessageCoroutine = null;
+        }
+
+        if (messageUI != null) messageUI.HideInstant();
     }
 }

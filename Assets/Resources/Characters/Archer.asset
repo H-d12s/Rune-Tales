@@ -23,7 +23,7 @@ MonoBehaviour:
   - attack: {fileID: 11400000, guid: adce31e66af145448820246ddfe4a661, type: 2}
     levelToLearn: 1
   - attack: {fileID: 11400000, guid: 7ff623c3c97ee754c94b7919b6fd8cdf, type: 2}
-    levelToLearn: 3
+    levelToLearn: 2
   - attack: {fileID: 11400000, guid: 600b8662c0b00a547bfc79bc219ade52, type: 2}
     levelToLearn: 7
   - attack: {fileID: 11400000, guid: cc79e3feb7906224aad1633df48c3d4a, type: 2}

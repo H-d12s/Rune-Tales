@@ -25,9 +25,9 @@ MonoBehaviour:
   - attack: {fileID: 11400000, guid: 86f3e79db24eb6e47b663eb8da6fb8cd, type: 2}
     levelToLearn: 1
   - attack: {fileID: 11400000, guid: 0b5f144d4663b884d8cdcadd13babf7b, type: 2}
-    levelToLearn: 2
-  - attack: {fileID: 11400000, guid: bc9d6acf15a6f6d4d8b8ae15b12bd1ad, type: 2}
     levelToLearn: 3
+  - attack: {fileID: 11400000, guid: bc9d6acf15a6f6d4d8b8ae15b12bd1ad, type: 2}
+    levelToLearn: 4
   - attack: {fileID: 11400000, guid: 0a91992b12d52d64d86dcd0c24cc23cc, type: 2}
     levelToLearn: 5
   - attack: {fileID: 11400000, guid: 0d8bcd69745219245aa927ce5184d2df, type: 2}
