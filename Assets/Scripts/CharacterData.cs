@@ -3,7 +3,19 @@ using System.Collections.Generic;
 
 [CreateAssetMenu(fileName = "NewCharacter", menuName = "RPG/Character")]
 public class CharacterData : ScriptableObject
-{
+{   
+    // inside CharacterData class (add near other headers)
+[Header("Animation Clips (optional)")]
+public AnimationClip idleClip;
+public AnimationClip attackClip;
+
+/// <summary>
+/// Normalized time in attack clip when the "hit" happens (0..1).
+/// If <= 0 or >= 1, no mid-hit event is fired. Default 0.5 (middle).
+/// </summary>
+[Range(0f, 1f)]
+public float attackHitNormalized = 0.5f;
+
     [Header("Basic Info")]
     public string characterName;
     public string characterTag;
