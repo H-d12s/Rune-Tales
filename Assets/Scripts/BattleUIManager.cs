@@ -260,84 +260,95 @@ public class BattleUIManager : MonoBehaviour
     /// Show small numeric indicators over each attack button and present a persistent message in the message panel.
     /// moveNames should be the list of currently equipped move names (in order). newMoveName shown in message.
     /// </summary>
-    public void ShowReplaceIndicators(List<string> moveNames, string newMoveName)
+   public void ShowReplaceIndicators(List<string> moveNames, string newMoveName)
+{
+    // defensive checks
+    if (attackButtons == null || attackButtons.Count == 0)
+        return;
+
+    ClearReplaceIndicators(); // start fresh
+
+    // Ensure attack panel is visible so indicators appear
+    if (attackSelectionPanel != null && !attackSelectionPanel.activeInHierarchy)
+        attackSelectionPanel.SetActive(true);
+
+    int max = Mathf.Min(attackButtons.Count, moveNames != null ? moveNames.Count : 0);
+    for (int i = 0; i < max; i++)
     {
-        // defensive checks
-        if (attackButtons == null || attackButtons.Count == 0)
-            return;
+        var btn = attackButtons[i];
+        if (btn == null) continue;
 
-        ClearReplaceIndicators(); // start fresh
+        GameObject indicator = null;
 
-        // Ensure attack panel is visible so indicators appear
-        if (attackSelectionPanel != null && !attackSelectionPanel.activeInHierarchy)
-            attackSelectionPanel.SetActive(true);
-
-        int max = Mathf.Min(attackButtons.Count, moveNames != null ? moveNames.Count : 0);
-        for (int i = 0; i < max; i++)
+        if (replaceIndicatorPrefab != null)
         {
-            var btn = attackButtons[i];
-            if (btn == null) continue;
-
-            GameObject indicator = null;
-
-            if (replaceIndicatorPrefab != null)
+            indicator = Instantiate(replaceIndicatorPrefab, btn.transform, false);
+            // try to position top-right if RectTransform present
+            var rt = indicator.GetComponent<RectTransform>();
+            if (rt != null)
             {
-                indicator = Instantiate(replaceIndicatorPrefab, btn.transform, false);
-                // try to position top-right if RectTransform present
-                var rt = indicator.GetComponent<RectTransform>();
-                if (rt != null)
-                {
-                    rt.anchorMin = new Vector2(1f, 1f);
-                    rt.anchorMax = new Vector2(1f, 1f);
-                    rt.pivot = new Vector2(1f, 1f);
-                    rt.anchoredPosition = new Vector2(-8f, -8f);
-                    rt.localScale = Vector3.one;
-                }
-            }
-            else
-            {
-                // fallback: create a small TMP label as child
-                indicator = new GameObject($"ReplaceIndicator_{i + 1}", typeof(RectTransform));
-                indicator.transform.SetParent(btn.transform, false);
-                var rt = indicator.GetComponent<RectTransform>();
                 rt.anchorMin = new Vector2(1f, 1f);
                 rt.anchorMax = new Vector2(1f, 1f);
                 rt.pivot = new Vector2(1f, 1f);
                 rt.anchoredPosition = new Vector2(-8f, -8f);
-                rt.sizeDelta = new Vector2(36f, 24f);
-
-                var img = indicator.AddComponent<Image>();
-                img.raycastTarget = false;
-                img.color = new Color(0f, 0f, 0f, 0.6f);
-
-                var tmpGO = new GameObject("Label", typeof(RectTransform));
-                tmpGO.transform.SetParent(indicator.transform, false);
-                var tmp = tmpGO.AddComponent<TextMeshProUGUI>();
-                tmp.fontSize = 18;
-                tmp.alignment = TextAlignmentOptions.Center;
-                tmp.text = (i + 1).ToString();
-                tmp.raycastTarget = false;
+                rt.localScale = Vector3.one;
             }
+        }
+        else
+        {
+            // fallback: create a small TMP label as child
+            indicator = new GameObject($"ReplaceIndicator_{i + 1}", typeof(RectTransform));
+            indicator.transform.SetParent(btn.transform, false);
+            var rt = indicator.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(1f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.anchoredPosition = new Vector2(-8f, -8f);
+            rt.sizeDelta = new Vector2(36f, 24f);
 
-            // If indicator has a TMP child, set text to index
-            var tm = indicator.GetComponentInChildren<TextMeshProUGUI>();
-            if (tm != null)
-            {
-                tm.text = (i + 1).ToString();
-                tm.color = Color.white;
-            }
+            var img = indicator.AddComponent<Image>();
+            img.raycastTarget = false;
+            img.color = new Color(0f, 0f, 0f, 0.6f);
 
-            activeReplaceIndicators.Add(indicator);
+            var tmpGO = new GameObject("Label", typeof(RectTransform));
+            tmpGO.transform.SetParent(indicator.transform, false);
+            var tmp = tmpGO.AddComponent<TextMeshProUGUI>();
+            tmp.fontSize = 18;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.text = (i + 1).ToString();
+            tmp.raycastTarget = false;
         }
 
-        // Also set a persistent message explaining controls (so keyboard users know)
-        var msgUI = FindFirstObjectByType<BattleMessageUI>();
-        if (msgUI != null)
+        // If indicator has a TMP child, set text to index
+        var tm = indicator.GetComponentInChildren<TextMeshProUGUI>();
+        if (tm != null)
         {
-            msgUI.SetPersistentMessage($"{playerController?.characterData?.characterName ?? "Your player"} can now learn a new attack ({newMoveName}).\nPress 1 to replace { (moveNames.Count > 0 ? moveNames[0] : "(none)") }." +
-                                       $"{(moveNames.Count > 1 ? $" Press 2 to replace {moveNames[1]}." : "")} Press N to exit and continue.");
+            tm.text = (i + 1).ToString();
+            tm.color = Color.white;
+        }
+
+        activeReplaceIndicators.Add(indicator);
+    }
+
+    // Also set a persistent message explaining controls (so keyboard users know)
+    var msgUI = FindFirstObjectByType<BattleMessageUI>();
+    var bm = FindFirstObjectByType<BattleManager>();
+    try
+    {
+        if (bm != null)
+        {
+            bm.CancelAndHideBattleMessage(); // clear any queued/active message to avoid races
         }
     }
+    catch { }
+
+    if (msgUI != null)
+    {
+        msgUI.SetPersistentMessage($"{playerController?.characterData?.characterName ?? "Your player"} can now learn a new attack ({newMoveName}).\nPress 1 to replace { (moveNames.Count > 0 ? moveNames[0] : "(none)") }." +
+                                   $"{(moveNames.Count > 1 ? $" Press 2 to replace {moveNames[1]}." : "")} Press N to exit and continue.");
+    }
+}
+
 
     /// <summary>
     /// Clear any replace indicators we created.

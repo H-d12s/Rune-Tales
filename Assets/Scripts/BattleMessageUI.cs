@@ -22,7 +22,9 @@ public class BattleMessageUI : MonoBehaviour
     public float typeSpeed = 0.02f;       // Delay between characters
     public float messageStayTime = 1.0f;  // Time before message disappears when using instant-show helpers
 
-    private Coroutine activeRoutine;
+    // The coroutine handle for the typed / helper coroutine so we can reliably stop it.
+    private Coroutine typingCoroutine = null;
+    private Coroutine activeRoutine = null;
 
     // persistent prompt flag
     private bool isPersistentMessageActive = false;
@@ -47,6 +49,14 @@ public class BattleMessageUI : MonoBehaviour
 
     private void StopActiveRoutine()
     {
+        // Stop the typed coroutine if running
+        if (typingCoroutine != null)
+        {
+            try { StopCoroutine(typingCoroutine); } catch { }
+            typingCoroutine = null;
+        }
+
+        // Stop any helper coroutine recorded in activeRoutine (e.g. ShowMessageThenHideInstantCoroutine)
         if (activeRoutine != null)
         {
             try { StopCoroutine(activeRoutine); } catch { }
@@ -59,7 +69,7 @@ public class BattleMessageUI : MonoBehaviour
     /// </summary>
     public IEnumerator ShowMessage(string message)
     {
-        // Stop previous typewriter so messages do not clash
+        // Stop previous typing & helper coroutines so messages do not clash
         StopActiveRoutine();
         if (messageText != null) messageText.text = "";
 
@@ -72,25 +82,48 @@ public class BattleMessageUI : MonoBehaviour
         // Ensure panel active
         if (!messagePanel.activeInHierarchy) messagePanel.SetActive(true);
 
-        // Typewriter
-        foreach (char c in message)
-        {
-            messageText.text += c;
-            yield return new WaitForSeconds(typeSpeed);
-        }
+        // Start internal typing coroutine and keep its handle so it can be stopped externally
+        typingCoroutine = StartCoroutine(TypeTextCoroutine(message));
+        // also set activeRoutine to the same handle so other helpers stop it consistently
+        activeRoutine = typingCoroutine;
 
-        yield return new WaitForSeconds(messageStayTime);
+        yield return typingCoroutine;
 
-        // Only auto-hide if not persistent
-        if (!isPersistentMessageActive)
-        {
-            messagePanel.SetActive(false);
-            messageText.text = "";
-        }
-
+        // Clean up handles after finished
+        typingCoroutine = null;
         activeRoutine = null;
         yield break;
     }
+
+    private IEnumerator TypeTextCoroutine(string message)
+{
+    // Debug start
+    Debug.Log($"[BattleMessageUI] TypeTextCoroutine START — '{(message ?? "").Replace("\n", "\\n")}'");
+
+    // Typewriter
+    if (messageText != null) messageText.text = "";
+
+    foreach (char c in message)
+    {
+        if (messageText != null) messageText.text += c;
+        // use real-time so typing continues if timeScale == 0
+        yield return new WaitForSecondsRealtime(typeSpeed);
+    }
+
+    // Pause for readability (real-time)
+    yield return new WaitForSecondsRealtime(messageStayTime);
+
+    // Only auto-hide if not persistent
+    if (!isPersistentMessageActive)
+    {
+        if (messagePanel != null) messagePanel.SetActive(false);
+        if (messageText != null) messageText.text = "";
+    }
+
+    // Debug end
+    Debug.Log($"[BattleMessageUI] TypeTextCoroutine END — finished message.");
+}
+
 
     /// <summary>
     /// Show instantly (no typing). Use from any code.
@@ -101,6 +134,7 @@ public class BattleMessageUI : MonoBehaviour
         if (messagePanel == null || messageText == null) return;
         messagePanel.SetActive(true);
         messageText.text = message ?? "";
+        // nothing left to stop; we are instant
     }
 
     /// <summary>
@@ -155,6 +189,23 @@ public class BattleMessageUI : MonoBehaviour
     /// </summary>
     public bool IsPersistentMessageActive() => isPersistentMessageActive;
 
+    /// <summary>
+    /// Convenience: clear text (both TMP and stop any typing) in a safe manner.
+    /// Useful for callers that want to ensure nothing lingers visually.
+    /// </summary>
+    public void ClearTextSafely()
+    {
+        try
+        {
+            StopActiveRoutine();
+
+            if (messageText != null) messageText.text = "";
+            if (messagePanel != null && messagePanel.activeInHierarchy && !isPersistentMessageActive)
+                messagePanel.SetActive(false);
+        }
+        catch { /* defensive */ }
+    }
+
     // ----------------------------------------
     // Convenience helpers used by your other scripts
     // ----------------------------------------
@@ -175,25 +226,23 @@ public class BattleMessageUI : MonoBehaviour
     /// Callers can StartCoroutine(...) on this if they want to wait.
     /// </summary>
     public IEnumerator ShowMessageThenHideInstantCoroutine(string text)
+{
+    ShowMessageInstant(text);
+
+    // Use unscaled wait
+    yield return new WaitForSecondsRealtime(messageStayTime);
+
+    if (!isPersistentMessageActive)
     {
-        // Show instantly (no typing)
-        ShowMessageInstant(text);
-
-        // Wait for configured duration (gives player time to read)
-        yield return new WaitForSeconds(messageStayTime);
-
-        // Only hide if persistent flag isn't set by something else while we waited
-        if (!isPersistentMessageActive)
+        if (messagePanel != null)
         {
-            if (messagePanel != null)
-            {
-                messagePanel.SetActive(false);
-                if (messageText != null) messageText.text = "";
-            }
+            messagePanel.SetActive(false);
+            if (messageText != null) messageText.text = "";
         }
-
-        activeRoutine = null;
     }
+
+    activeRoutine = null;
+}
 
     /// <summary>
     /// Immediately hide panel and stop any running helpers (compatibility method).

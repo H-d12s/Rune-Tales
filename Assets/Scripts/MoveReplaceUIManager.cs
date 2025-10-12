@@ -24,6 +24,9 @@ public class MoveReplaceUIManager : MonoBehaviour
     private string currentNewMoveName;
     private string currentCharacterName;
 
+    // cached reference to BattleManager so we can safely clear message queue when showing/hiding persistent prompts
+    private BattleManager battleManager;
+
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -32,6 +35,8 @@ public class MoveReplaceUIManager : MonoBehaviour
 
         if (messageUI == null)
             messageUI = FindObjectOfType<BattleMessageUI>();
+
+        battleManager = FindObjectOfType<BattleManager>();
     }
 
     /// <summary>
@@ -59,6 +64,15 @@ public class MoveReplaceUIManager : MonoBehaviour
     prompt += "Press N to exit and continue.";
 
     if (messageUI == null) messageUI = FindObjectOfType<BattleMessageUI>();
+    if (battleManager == null) battleManager = FindObjectOfType<BattleManager>();
+
+    // Use BattleManager to cancel/hide any queued messages so we won't race with a typed coroutine.
+    try
+    {
+        if (battleManager != null)
+            battleManager.CancelAndHideBattleMessage();
+    }
+    catch { /* defensive */ }
 
     // Use SetPersistentMessage to keep the panel visible until HidePersistentMessage is called.
     if (messageUI != null)
@@ -124,7 +138,10 @@ private IEnumerator HideMessageAfterDelay(float delay)
 {
     // Wait a bit then hide persistent message (defensive)
     yield return new WaitForSeconds(Mathf.Max(0f, delay));
-    if (messageUI != null) messageUI.HidePersistentMessage();
+    if (battleManager != null)
+        battleManager.CancelAndHideBattleMessage();
+    else if (messageUI != null)
+        messageUI.HidePersistentMessage();
 }
 
 /// <summary>
@@ -137,7 +154,9 @@ private void SelectIndex(int index)
     IsAwaitingChoice = false;
 
     // Clear persistent prompt (so the panel will not remain locked)
-    if (messageUI != null)
+    if (battleManager != null)
+        battleManager.CancelAndHideBattleMessage();
+    else if (messageUI != null)
         messageUI.HidePersistentMessage();
 
     // Clear replace indicators on attack buttons
@@ -147,12 +166,17 @@ private void SelectIndex(int index)
         try { ui.ClearReplaceIndicators(); } catch { }
     }
 
-    // Show a short confirmation instantly (no typewriter)
+    // Show a short confirmation via the BattleManager (non-blocking queued message)
     string confirmation = $"{(currentMoves != null && index < currentMoves.Count ? currentMoves[index] : "(unknown)")} replaced with {currentNewMoveName}!";
-    if (messageUI != null)
+    if (battleManager != null)
     {
+        // non-blocking so we don't stall other flows
+        battleManager.StartCoroutine(battleManager.ShowBattleMessage(confirmation, false));
+    }
+    else if (messageUI != null)
+    {
+        // fallback to direct instant show, then hide after delay
         messageUI.ShowMessageInstant(confirmation);
-        // Hide the confirmation after the message stay time so the panel doesn't block UI
         StartCoroutine(HideConfirmationAfterDelay(messageUI.messageStayTime));
     }
     else
@@ -170,7 +194,9 @@ private void CancelChoice()
     IsAwaitingChoice = false;
 
     // Ensure persistent prompt is cleared and indicators are removed
-    if (messageUI != null)
+    if (battleManager != null)
+        battleManager.CancelAndHideBattleMessage();
+    else if (messageUI != null)
         messageUI.HidePersistentMessage();
 
     var ui = FindObjectOfType<BattleUIManager>();
@@ -198,7 +224,9 @@ public void ForceCancel()
 private IEnumerator HideConfirmationAfterDelay(float delay)
 {
     yield return new WaitForSeconds(Mathf.Max(0f, delay));
-    if (messageUI != null)
+    if (battleManager != null)
+        battleManager.CancelAndHideBattleMessage();
+    else if (messageUI != null)
         messageUI.HidePersistentMessage(); // works as a HideInstant equivalent
 }
 }

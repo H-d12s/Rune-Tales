@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine.UI;
 using System;
 using Random = UnityEngine.Random;
+using TMPro;
 
 
 /// <summary>
@@ -13,6 +14,10 @@ public class BattleManager : MonoBehaviour
 {
     [Header("Battle Messages")]
     public BattleMessageUI messageUI; // assign in inspector
+
+    // Coroutine handle for the running ProcessMessageQueue() so we can stop it.
+private Coroutine messageQueueCoroutine = null;
+
 
     [Header("Visuals")]
     public Image backgroundImageUI;       // assign from Canvas
@@ -75,6 +80,10 @@ public class BattleManager : MonoBehaviour
     private Queue<MessageRequest> messageQueue = new Queue<MessageRequest>();
     private bool processingMessageQueue = false;
     private Coroutine activeMessageCoroutine = null;
+
+
+// Currently-processing message (so Cancel/Hides can mark it completed).
+private MessageRequest currentMessageRequest = null;
 
     // -------------------------
     // Unity lifecycle
@@ -675,10 +684,15 @@ public class BattleManager : MonoBehaviour
 
     // --- DAMAGE moves (one or many targets) ---
     List<CharacterBattleController> targets = new List<CharacterBattleController>();
-    if (attack.isAoE)
-        targets.AddRange(enemyControllers.FindAll(e => e.GetRuntimeCharacter().IsAlive));
-    else
-        targets.Add(target);
+if (attack.isAoE)
+{
+    var opponents = attacker.isPlayer ? enemyControllers : playerControllers;
+    targets.AddRange(opponents.FindAll(o => o != null && o.GetRuntimeCharacter().IsAlive));
+}
+else
+{
+    targets.Add(target);
+}
 
     bool appliedSelfEffects = false;
     foreach (var tgt in targets)
@@ -1306,26 +1320,48 @@ public class BattleManager : MonoBehaviour
     /// Use blocking=true to wait until the message fully finishes.
     /// </summary>
     public IEnumerator ShowBattleMessage(string text, bool blocking = true)
+{
+    if (messageUI == null)
     {
-        if (messageUI == null)
-        {
-            Debug.LogWarning("⚠️ messageUI not assigned!");
-            yield break;
-        }
-
-        var req = new MessageRequest { text = text, completed = false };
-        messageQueue.Enqueue(req);
-
-        if (!processingMessageQueue)
-            StartCoroutine(ProcessMessageQueue());
-
-        if (blocking)
-            yield return new WaitUntil(() => req.completed);
-        else
-            yield break;
+        Debug.LogWarning("⚠️ messageUI not assigned!");
+        yield break;
     }
 
- private IEnumerator ProcessMessageQueue()
+    var req = new MessageRequest { text = text, completed = false };
+    messageQueue.Enqueue(req);
+
+    if (!processingMessageQueue)
+    {
+        // store the Coroutine handle so we can stop it later if needed
+        messageQueueCoroutine = StartCoroutine(ProcessMessageQueue());
+    }
+
+    if (!blocking)
+        yield break;
+
+    // Blocking wait, but with a hard timeout fallback so we never hang forever.
+    // We prefer to wait for req.completed, but if something goes wrong (race, external StopCoroutine),
+    // we will force-complete after a short timeout.
+   float maxWait = 12f;
+float elapsed = 0f;
+while (!req.completed && elapsed < maxWait)
+{
+    elapsed += Time.unscaledDeltaTime;
+    yield return null;
+}
+
+    if (!req.completed)
+    {
+        // If we hit the timeout, warn and mark completed so the caller (battle loop etc.) continues.
+        Debug.LogWarning($"⚠️ ShowBattleMessage('{text}') timed out after {maxWait}s — forcing continuation.");
+        req.completed = true;
+    }
+
+    yield break;
+}
+
+
+private IEnumerator ProcessMessageQueue()
 {
     if (processingMessageQueue) yield break;
     processingMessageQueue = true;
@@ -1335,41 +1371,41 @@ public class BattleManager : MonoBehaviour
         var req = messageQueue.Dequeue();
         if (req == null) continue;
 
+        // expose to cancel function
+        currentMessageRequest = req;
+
         // Ensure the message UI GameObject is active so its coroutines won't fail.
         if (messageUI != null && messageUI.gameObject != null && !messageUI.gameObject.activeInHierarchy)
             messageUI.gameObject.SetActive(true);
 
-        // Stop any previously-running typed coroutine started by BattleManager.
         if (activeMessageCoroutine != null)
         {
             try { StopCoroutine(activeMessageCoroutine); } catch { }
             activeMessageCoroutine = null;
         }
 
-        // Completion flags used to wait for both UI and TTS to finish.
         bool typedDone = false;
         bool ttsDone = false;
 
-        // Local helper: run a coroutine and set a completion flag when it returns.
         IEnumerator RunAndMark(IEnumerator job, System.Action markDone)
         {
             yield return StartCoroutine(job);
             try { markDone?.Invoke(); } catch { }
         }
 
-        // --- Start typed UI coroutine (if available) ---
         bool startedTyped = false;
         if (messageUI != null)
         {
             try
             {
-                activeMessageCoroutine = StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
+                activeMessageCoroutine =
+                    StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
                 startedTyped = true;
             }
             catch (System.Exception ex)
             {
                 Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
-                typedDone = true; // mark as done so we don't wait forever
+                typedDone = true;
                 activeMessageCoroutine = null;
             }
         }
@@ -1378,16 +1414,15 @@ public class BattleManager : MonoBehaviour
             typedDone = true;
         }
 
-        // --- Start TTS coroutine in parallel if a MurfTTSStream exists ---
         var tts = FindObjectOfType<MurfTTSStream>();
         if (tts != null)
         {
             try
             {
-                // contextId and padding can be adjusted as needed.
                 string ttsContext = "battle";
-                float ttsPadding = 0.12f; // small padding to avoid cutting at end
-                StartCoroutine(RunAndMark(tts.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding), () => ttsDone = true));
+                float ttsPadding = 0.12f;
+                StartCoroutine(RunAndMark(tts.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding),
+                                          () => ttsDone = true));
             }
             catch (System.Exception ex)
             {
@@ -1397,11 +1432,9 @@ public class BattleManager : MonoBehaviour
         }
         else
         {
-            // No TTS available — mark done immediately.
             ttsDone = true;
         }
 
-        // If typed coroutine couldn't start, show instantly as a fallback so the player sees the message.
         if (!startedTyped && messageUI != null)
         {
             try
@@ -1412,54 +1445,96 @@ public class BattleManager : MonoBehaviour
             {
                 Debug.Log(req.text);
             }
-
-            // small readability delay for instant fallback
             yield return new WaitForSeconds(0.45f);
         }
 
-        // Wait until both finished or a safety timeout expires.
-        float safetyTimeout = 12f; // seconds (adjust if needed)
-        float elapsed = 0f;
-        while (!(typedDone && ttsDone) && elapsed < safetyTimeout)
-        {
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
+        // Wait until both finished or a safety timeout OR until someone externally marks req.completed
+       float safetyTimeout = 12f; // seconds (adjust if needed)
+float elapsed = 0f;
+while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
+{
+    elapsed += Time.unscaledDeltaTime;
+    yield return null;
+}
 
-        if (!(typedDone && ttsDone))
+        if (!(typedDone && ttsDone) && !req.completed)
         {
             Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
         }
 
-        // Clear active reference (we no longer consider the typed coroutine active here).
+        // Clear active typed reference
         activeMessageCoroutine = null;
 
-        // Mark request as completed so callers waiting on this request can continue.
+        // Mark request completed (so any ShowBattleMessage callers waiting will continue).
         req.completed = true;
 
-        // tiny buffer to avoid immediate back-to-back flashes
+        // tiny buffer
         yield return null;
+
+        // clear current request
+        currentMessageRequest = null;
     }
 
     processingMessageQueue = false;
+    // clear the stored coroutine handle
+    messageQueueCoroutine = null;
 }
+
 
 
     /// <summary>
     /// Cancel any currently queued or running messages and hide message UI instantly.
     /// </summary>
-    public void CancelAndHideBattleMessage()
+   public void CancelAndHideBattleMessage()
+{
+    // clear queued messages
+    messageQueue.Clear();
+
+    // If there's a currently-processing request, mark it completed so any blocking callers continue.
+    if (currentMessageRequest != null)
     {
-        messageQueue.Clear();
-
-        try { StopCoroutine(ProcessMessageQueue()); } catch { }
-
-        if (activeMessageCoroutine != null)
-        {
-            try { StopCoroutine(activeMessageCoroutine); } catch { }
-            activeMessageCoroutine = null;
-        }
-
-        if (messageUI != null) messageUI.HideInstant();
+        try { currentMessageRequest.completed = true; } catch { }
+        currentMessageRequest = null;
     }
+
+    // Stop the main queue coroutine
+    if (messageQueueCoroutine != null)
+    {
+        try { StopCoroutine(messageQueueCoroutine); } catch { }
+        messageQueueCoroutine = null;
+    }
+
+    // Stop any typed-message coroutine we've stored
+    if (activeMessageCoroutine != null)
+    {
+        try { StopCoroutine(activeMessageCoroutine); } catch { }
+        activeMessageCoroutine = null;
+    }
+
+    // reset flag so ProcessMessageQueue won't be left in a weird state
+    processingMessageQueue = false;
+
+    // Hide message UI and aggressively clear any text so it doesn't linger
+    if (messageUI != null)
+    {
+        try { messageUI.HideInstant(); } catch { }
+
+        // best-effort: clear common text components inside messageUI so text doesn't linger on screen
+        try
+        {
+            var textComp = messageUI.GetComponentInChildren<UnityEngine.UI.Text>();
+            if (textComp != null) textComp.text = "";
+        }
+        catch { }
+
+        try
+        {
+            // TextMeshPro support (if you use TMP)
+            var tmp = messageUI.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (tmp != null) tmp.text = "";
+        }
+        catch { }
+    }
+}
+
 }
