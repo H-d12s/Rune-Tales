@@ -82,12 +82,19 @@ private Coroutine messageQueueCoroutine = null;
     private Coroutine activeMessageCoroutine = null;
 
 
-// Currently-processing message (so Cancel/Hides can mark it completed).
-private MessageRequest currentMessageRequest = null;
+    // Currently-processing message (so Cancel/Hides can mark it completed).
+    private MessageRequest currentMessageRequest = null;
 
     // -------------------------
     // Unity lifecycle
     // -------------------------
+    
+    private void Awake()
+{
+    Debug.Log($"[BattleManager] Awake on {gameObject.name} (enabled={enabled}, activeInHierarchy={gameObject.activeInHierarchy})");
+    var all = FindObjectsOfType<BattleManager>();
+    Debug.Log($"[BattleManager] Instances in scene: {all.Length}");
+}
     void Start()
     {
         uiManager = FindFirstObjectByType<BattleUIManager>();
@@ -201,19 +208,16 @@ private MessageRequest currentMessageRequest = null;
         Debug.Log($"✅ Battle started: {playerControllers.Count} players vs {enemyControllers.Count} enemies");
     }
 
-    public void StartRecruitmentBattle(List<CharacterData> playerTeamData, CharacterData recruitData)
-    {
-        if (recruitData == null)
-        {
-            Debug.LogError("❌ StartRecruitmentBattle called with null recruitData!");
-            return;
-        }
+  public void StartRecruitmentBattle(List<CharacterData> playerTeamData, CharacterData recruitData, RegionData region)
+{
+    // forward region into StartBattle
+    isRecruitmentBattle = true;
+    recruitmentComplete = false;
+    var enemyList = new List<CharacterData> { recruitData };
+    StartBattle(playerTeamData, enemyList, region);
+}
 
-        isRecruitmentBattle = true;
-        recruitmentComplete = false;
-        var enemyList = new List<CharacterData> { recruitData };
-        StartBattle(playerTeamData, enemyList);
-    }
+
 
     public List<CharacterBattleController> GetAllEnemies()
     {
@@ -1277,45 +1281,77 @@ else
     // ==========================================================
     // Background fade helper
     // ==========================================================
-    private IEnumerator FadeRegionBackground(RegionData newRegion)
+   private Coroutine activeBackgroundFade = null;
+
+private IEnumerator FadeRegionBackground(RegionData newRegion)
+{
+    if (backgroundImageUI == null)
     {
-        if (backgroundImageUI == null)
-        {
-            Debug.LogWarning("⚠️ No backgroundImageUI assigned in BattleManager!");
-            yield break;
-        }
-
-        float duration = 1f;
-        float t = 0f;
-        Color startColor = backgroundImageUI.color;
-        Color endColor = new Color(startColor.r, startColor.g, startColor.b, 0);
-
-        while (t < duration)
-        {
-            t += Time.deltaTime;
-            backgroundImageUI.color = Color.Lerp(startColor, endColor, t / duration);
-            yield return null;
-        }
-
-        if (newRegion != null && newRegion.backgroundImage != null)
-        {
-            backgroundImageUI.sprite = newRegion.backgroundImage;
-            backgroundImageUI.preserveAspect = true;
-        }
-
-        t = 0f;
-        startColor = backgroundImageUI.color;
-        endColor = new Color(startColor.r, startColor.g, startColor.b, 1);
-
-        while (t < duration)
-        {
-            t += Time.deltaTime;
-            backgroundImageUI.color = Color.Lerp(startColor, endColor, t / duration);
-            yield return null;
-        }
-
-        backgroundImageUI.color = endColor;
+        Debug.LogWarning("⚠️ No backgroundImageUI assigned in BattleManager!");
+        yield break;
     }
+
+    if (newRegion == null)
+    {
+        Debug.LogWarning("⚠️ FadeRegionBackground called with null RegionData.");
+        yield break;
+    }
+
+    // debug: tell us what we're about to use
+    Debug.Log($"ℹ️ FadeRegionBackground: switching to region '{newRegion.regionName}' (sprite: {newRegion.backgroundImage?.name ?? "NULL"})");
+
+    // Stop previous fade if running
+    if (activeBackgroundFade != null)
+    {
+        try { StopCoroutine(activeBackgroundFade); } catch { }
+        activeBackgroundFade = null;
+    }
+
+    // Make sure image GameObject is active
+    if (!backgroundImageUI.gameObject.activeInHierarchy)
+        backgroundImageUI.gameObject.SetActive(true);
+
+    // Ensure the image starts visible (alpha = 1)
+    backgroundImageUI.canvasRenderer.SetAlpha(1f);
+
+    // Fade out quickly to 0 so we can swap the sprite while invisible
+    float fadeDuration = 0.9f;
+    backgroundImageUI.CrossFadeAlpha(0f, fadeDuration, true);
+    float t = 0f;
+    while (t < fadeDuration)
+    {
+        t += Time.deltaTime;
+        yield return null;
+    }
+
+    // Double-check the region sprite is valid
+    if (newRegion.backgroundImage == null)
+    {
+        Debug.LogWarning($"⚠️ Region '{newRegion.regionName}' has no backgroundImage sprite assigned!");
+        // fade back in to whatever was there previously (if any)
+        backgroundImageUI.CrossFadeAlpha(1f, 0.15f, true);
+        yield break;
+    }
+
+    // Set the new sprite and preserve aspect if desired
+    backgroundImageUI.sprite = newRegion.backgroundImage;
+    backgroundImageUI.preserveAspect = true;
+
+    // Force UI to update before fading in
+    Canvas.ForceUpdateCanvases();
+
+    // Fade in
+    backgroundImageUI.CrossFadeAlpha(1f, fadeDuration, true);
+    t = 0f;
+    while (t < fadeDuration)
+    {
+        t += Time.deltaTime;
+        yield return null;
+    }
+
+    backgroundImageUI.canvasRenderer.SetAlpha(1f);
+    activeBackgroundFade = null;
+}
 
     // ==========================================================
     // Message queueing (safe, sequential messages)
