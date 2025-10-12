@@ -3629,7 +3629,7 @@ MonoBehaviour:
   messagePanel: {fileID: 1663034909}
   messageText: {fileID: 1515980832}
   typeSpeed: 0.02
-  messageStayTime: 4
+  messageStayTime: 2
 --- !u!114 &1663034912
 MonoBehaviour:
   m_ObjectHideFlags: 0
