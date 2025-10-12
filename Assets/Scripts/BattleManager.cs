@@ -332,51 +332,56 @@ private MessageRequest currentMessageRequest = null;
                 if (parent != null)
                 {
                     var hbObj = Instantiate(healthBarPrefab, parent);
-                    var hb = hbObj.GetComponent<HealthbarController>();
-                    if (hb != null)
-                    {
-                        var runtime = ctrl.GetRuntimeCharacter();
-                        int lvl = runtime != null ? runtime.currentLevel : 1;
-                        string displayName = ctrl.characterData != null ? ctrl.characterData.characterName : ctrl.name;
+var hb = hbObj.GetComponent<HealthbarController>();
+if (hb != null)
+{
+    var runtime = ctrl.GetRuntimeCharacter();
+    int lvl = runtime != null ? runtime.currentLevel : 1;
+    string displayName = ctrl.characterData != null ? ctrl.characterData.characterName : ctrl.name;
 
-                        hb.Init(displayName, lvl, isPlayer);
+    hb.Init(displayName, lvl, isPlayer);
 
-                        if (runtime != null)
-                        {
-                            float percent = runtime.runtimeHP > 0 ? (float)runtime.currentHP / runtime.runtimeHP : 1f;
-                            hb.SetHPInstant(percent);
-                        }
+    if (runtime != null)
+    {
+        float percent = runtime.runtimeHP > 0 ? (float)runtime.currentHP / runtime.runtimeHP : 1f;
+        hb.SetHPInstant(percent);
+    }
 
-                        hb.transform.SetSiblingIndex(i);
-                        healthbarMap[ctrl] = hb;
+    // keep binding and mapping
+    healthbarMap[ctrl] = hb;
+    try { hb.BindRuntime(ctrl.GetRuntimeCharacter()); } catch { }
 
-                        try { hb.BindRuntime(ctrl.GetRuntimeCharacter()); } catch { }
+    // keep sibling index ordering
+    try { hb.transform.SetSiblingIndex(i); } catch { }
 
-                        if (isPlayer && expSystem != null && runtime != null)
-                        {
-                            int storedXP = 0;
-                            try { storedXP = expSystem.GetStoredXPFor(runtime.baseData.characterName); } catch { storedXP = 0; }
-                            int xpToNext = 0;
-                            try { xpToNext = expSystem.GetXPToNextLevel(runtime.currentLevel); } catch { xpToNext = 0; }
-                            float xpPercent = xpToNext > 0 ? Mathf.Clamp01(storedXP / (float)xpToNext) : 0f;
-                            try { hb.AnimateXP(xpPercent); } catch { }
-                        }
+    // APPLY EXACT HARD-CODED POSITIONS (this uses your provided numbers)
+    try
+    {
+        var rt = hb.GetComponent<RectTransform>();
+        ApplyHardcodedHealthbarPositions(rt, hbObj, isPlayer, i);
+    }
+    catch (System.Exception ex)
+    {
+        Debug.LogWarning($"⚠️ ApplyHardcodedHealthbarPositions failed: {ex.Message}");
+    }
 
-                        var rt = hb.GetComponent<RectTransform>();
-                        if (rt != null)
-                        {
-                            float spacing = 30f;
-                            Vector2 anchored = rt.anchoredPosition;
-                            anchored.y = -i * spacing;
-                            rt.anchoredPosition = anchored;
-                        }
-                    }
+    // XP init (unchanged)
+    if (isPlayer && expSystem != null && runtime != null)
+    {
+        int storedXP = 0;
+        try { storedXP = expSystem.GetStoredXPFor(runtime.baseData.characterName); } catch { storedXP = 0; }
+        int xpToNext = 0;
+        try { xpToNext = expSystem.GetXPToNextLevel(runtime.currentLevel); } catch { xpToNext = 0; }
+        float xpPercent = xpToNext > 0 ? Mathf.Clamp01(storedXP / (float)xpToNext) : 0f;
+        try { hb.AnimateXP(xpPercent); } catch { }
+    }
+}
+
                 }
             }
         }
         Debug.Log($"SpawnTeam: spawned {list.Count} {(isPlayer ? "player" : "enemy")} controllers.");
     }
-
     // ==========================================================
     // Main loop & phases
     // ==========================================================
@@ -1535,6 +1540,153 @@ while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
         }
         catch { }
     }
+}
+private void ApplyHardcodedHealthbarPositions(RectTransform hbRect, GameObject hbObj, bool isPlayer, int spawnIndex)
+{
+    if (hbObj == null) return;
+
+    // X coordinate common to healthbar
+    float targetX = 8.17651f;
+
+    // ==== Name text coordinates (user-provided) ====
+    // Player name positions
+    Vector2 playerNamePos0 = new Vector2(336.8f, 1004.8f);
+    Vector2 playerNamePos1 = new Vector2(336.8f, 1002.3f);
+    Vector2 playerNamePos2 = new Vector2(336.8f, 1005.6f);
+
+    // Enemy name positions (typo corrected: second enemy x set to 336.8)
+    Vector2 enemyNamePos0 = new Vector2(336.8f, 1004.4f);
+    Vector2 enemyNamePos1 = new Vector2(336.8f, 1005.6f);
+
+    // ==== XP & Healthbar placement ====
+    if (isPlayer)
+    {
+        float targetY;
+        float xpX = 465.5f;
+        float xpY;
+
+        switch (spawnIndex)
+        {
+            case 0:
+                targetY = 179.8f;
+                xpY = 955.2f;
+                break;
+            case 1:
+                targetY = 84.99f;
+                xpY = 956.4f;
+                break;
+            case 2:
+                targetY = -0.50874f;
+                xpY = 954.6f;
+                break;
+            default:
+                targetY = 179.8f - spawnIndex * 94.81f;
+                xpY = 955.2f;
+                break;
+        }
+
+        // Healthbar position (anchored or local)
+        if (hbRect != null)
+        {
+            hbRect.anchoredPosition = new Vector2(targetX, targetY);
+        }
+        else
+        {
+            try { hbObj.transform.localPosition = new Vector3(targetX, targetY, hbObj.transform.localPosition.z); } catch { }
+        }
+
+        // XP container child search & position (search for name containing "xpbar" or "xp")
+        Transform xpChild = null;
+        foreach (Transform c in hbObj.transform)
+        {
+            if (c == null || string.IsNullOrEmpty(c.name)) continue;
+            string lower = c.name.ToLowerInvariant();
+            if (lower.Contains("xpbar") || lower.Contains("xp") && lower.Contains("bar") || lower.Contains("xpcontainer"))
+            {
+                xpChild = c;
+                break;
+            }
+        }
+
+        if (xpChild != null)
+        {
+            var xpRect = xpChild as RectTransform;
+            if (xpRect != null) xpRect.anchoredPosition = new Vector2(xpX, xpY);
+            else
+            {
+                try { xpChild.localPosition = new Vector3(xpX, xpY, xpChild.localPosition.z); } catch { }
+            }
+        }
+
+        // --- NameText placement ---
+        Vector2 chosenNamePos = spawnIndex == 0 ? playerNamePos0 : spawnIndex == 1 ? playerNamePos1 : playerNamePos2;
+        // find child with "name" in its name (case-insensitive)
+        Transform nameChild = null;
+        foreach (Transform c in hbObj.transform)
+        {
+            if (c == null || string.IsNullOrEmpty(c.name)) continue;
+            if (c.name.ToLowerInvariant().Contains("name"))
+            {
+                nameChild = c;
+                break;
+            }
+        }
+
+        if (nameChild != null)
+        {
+            var nameRect = nameChild as RectTransform;
+            if (nameRect != null) nameRect.anchoredPosition = chosenNamePos;
+            else
+            {
+                try { nameChild.localPosition = new Vector3(chosenNamePos.x, chosenNamePos.y, nameChild.localPosition.z); } catch { }
+            }
+        }
+
+        return;
+    }
+
+    // ===== Enemy placement (max 2) =====
+    float enemyTargetY;
+    switch (spawnIndex)
+    {
+        case 0: enemyTargetY = -0.50874f; break;
+        case 1: enemyTargetY = -81.2f; break;
+        default: enemyTargetY = -0.50874f - spawnIndex * 80f; break;
+    }
+
+    if (hbRect != null)
+    {
+        hbRect.anchoredPosition = new Vector2(targetX, enemyTargetY);
+    }
+    else
+    {
+        try { hbObj.transform.localPosition = new Vector3(targetX, enemyTargetY, hbObj.transform.localPosition.z); } catch { }
+    }
+
+    // Enemy name placement
+    Vector2 chosenEnemyName = spawnIndex == 0 ? enemyNamePos0 : enemyNamePos1;
+    Transform nameChildEnemy = null;
+    foreach (Transform c in hbObj.transform)
+    {
+        if (c == null || string.IsNullOrEmpty(c.name)) continue;
+        if (c.name.ToLowerInvariant().Contains("name"))
+        {
+            nameChildEnemy = c;
+            break;
+        }
+    }
+
+    if (nameChildEnemy != null)
+    {
+        var nameRect = nameChildEnemy as RectTransform;
+        if (nameRect != null) nameRect.anchoredPosition = chosenEnemyName;
+        else
+        {
+            try { nameChildEnemy.localPosition = new Vector3(chosenEnemyName.x, chosenEnemyName.y, nameChildEnemy.localPosition.z); } catch { }
+        }
+    }
+
+    // (No XP reposition for enemy in provided list; add if you want)
 }
 
 }

@@ -15,7 +15,7 @@ MonoBehaviour:
   attackName: Magic orb
   description: 
   icon: {fileID: 0}
-  power: 45
+  power: 70
   maxUsage: 25
   chargeValue: 0
   isAoE: 0
@@ -57,4 +57,4 @@ MonoBehaviour:
   modifiesNextDice: 0
   nextDiceMin: 1
   nextDiceMax: 10
-  currentUsage: 25
+  currentUsage: 22

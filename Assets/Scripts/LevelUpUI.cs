@@ -6,15 +6,14 @@ using TMPro;
 using UnityEngine.UI;
 
 /// <summary>
-/// Small dedicated panel used for Level-up and Move-learn notifications.
-/// Keeps its own coroutine flow and does not touch BattleMessageUI.
-/// Designed to be simple: supports blocking (wait for player press) and non-blocking auto-hide variants.
-/// Uses unscaled time so UI works even if Time.timeScale == 0.
+/// LevelUpUI that uses CanvasGroup transparency instead of enabling/disabling the GameObject.
+/// Coroutines run even while visually hidden because the component/gameobject stays active.
+/// Uses unscaled time so UI works when Time.timeScale == 0.
 /// </summary>
 public class LevelUpUI : MonoBehaviour
 {
     [Header("UI References (assign in inspector)")]
-    public GameObject panel;         // root panel to toggle
+    public GameObject panel;         // root panel to toggle alpha on (should have a CanvasGroup)
     public TMP_Text titleText;       // headline (e.g. "Level Up!")
     public TMP_Text bodyText;        // message body
     public Button continueButton;    // "OK" / Continue button
@@ -22,15 +21,79 @@ public class LevelUpUI : MonoBehaviour
     [Header("Defaults")]
     public float defaultAutoHideSeconds = 1.2f;      // non-blocking message display time
     public float minStaggerBetweenMessages = 0.06f;  // small gap when showing message sequences
+    public float fadeDuration = 0.18f;              // fade in/out duration (unscaled)
 
+    // internal
+    private CanvasGroup canvasGroup;
     private bool waitingForContinue = false;
+    private Coroutine activeSequence = null;
 
     private void Awake()
     {
-        if (panel != null) panel.SetActive(false);
+        // sanity checks
+        if (panel == null)
+        {
+            Debug.LogWarning("[LevelUpUI] panel not assigned - disabling this component.");
+            enabled = false;
+            return;
+        }
+
+        // Ensure there's a CanvasGroup for alpha control
+        canvasGroup = panel.GetComponent<CanvasGroup>();
+        if (canvasGroup == null)
+            canvasGroup = panel.AddComponent<CanvasGroup>();
+
+        // Start hidden but the GameObject and component remain active so coroutines run
+        canvasGroup.alpha = 0f;
+        canvasGroup.interactable = false;
+        canvasGroup.blocksRaycasts = false;
+
         if (titleText != null) titleText.text = "";
         if (bodyText != null) bodyText.text = "";
-        if (continueButton != null) continueButton.onClick.RemoveAllListeners();
+
+        if (continueButton != null)
+        {
+            continueButton.onClick.RemoveAllListeners();
+        }
+
+        // Make sure the panel GameObject itself is active so CanvasGroup works and coroutines run.
+        // The actual visibility is controlled via canvasGroup.alpha.
+        if (!panel.activeInHierarchy) panel.SetActive(true);
+    }
+
+    // Simple fade helpers (unscaled)
+    private IEnumerator FadeTo(float targetAlpha, float duration)
+    {
+        if (canvasGroup == null)
+            yield break;
+
+        float start = canvasGroup.alpha;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            canvasGroup.alpha = Mathf.Lerp(start, targetAlpha, Mathf.Clamp01(elapsed / Mathf.Max(0.0001f, duration)));
+            yield return null;
+        }
+        canvasGroup.alpha = targetAlpha;
+    }
+
+    private IEnumerator FadeIn()
+    {
+        // make visible and interactive at the end of fade in
+        canvasGroup.interactable = false;
+        canvasGroup.blocksRaycasts = false;
+        yield return StartCoroutine(FadeTo(1f, fadeDuration));
+        canvasGroup.interactable = true;
+        canvasGroup.blocksRaycasts = true;
+    }
+
+    private IEnumerator FadeOut()
+    {
+        // disable interaction immediately to avoid input while fading out
+        canvasGroup.interactable = false;
+        canvasGroup.blocksRaycasts = false;
+        yield return StartCoroutine(FadeTo(0f, fadeDuration));
     }
 
     /// <summary>
@@ -41,23 +104,25 @@ public class LevelUpUI : MonoBehaviour
     {
         if (panel == null || bodyText == null)
         {
-            Debug.LogWarning("LevelUpUI: missing references for ShowBlocking.");
+            Debug.LogWarning("[LevelUpUI] ShowBlocking called but panel/bodyText not assigned.");
             yield break;
         }
 
-        panel.SetActive(true);
         if (titleText != null) titleText.text = title ?? "";
         bodyText.text = message ?? "";
 
+        // Fade in
+        yield return StartCoroutine(FadeIn());
+
         waitingForContinue = true;
-        // attach listener
+
+        // attach listener with local closure so we can remove it safely
+        UnityEngine.Events.UnityAction onClick = null;
         if (continueButton != null)
         {
-            UnityEngine.Events.UnityAction onClick = null;
             onClick = () =>
             {
                 waitingForContinue = false;
-                try { continueButton.onClick.RemoveListener(onClick); } catch { }
             };
             continueButton.onClick.AddListener(onClick);
         }
@@ -77,17 +142,16 @@ public class LevelUpUI : MonoBehaviour
             yield return null;
         }
 
-        // cleanup
-        if (continueButton != null)
+        // cleanup listener
+        if (continueButton != null && onClick != null)
         {
-            try { continueButton.onClick.RemoveAllListeners(); } catch { }
+            try { continueButton.onClick.RemoveListener(onClick); } catch { }
         }
 
-        // hide
+        // Fade out and clear
+        yield return StartCoroutine(FadeOut());
         bodyText.text = "";
         if (titleText != null) titleText.text = "";
-        panel.SetActive(false);
-        yield break;
     }
 
     /// <summary>
@@ -97,17 +161,19 @@ public class LevelUpUI : MonoBehaviour
     {
         if (panel == null || bodyText == null)
         {
-            Debug.LogWarning("LevelUpUI: missing references for ShowNonBlocking.");
+            Debug.LogWarning("[LevelUpUI] ShowNonBlocking called but panel/bodyText not assigned.");
             yield break;
         }
 
         if (durationSeconds <= 0f) durationSeconds = defaultAutoHideSeconds;
 
-        panel.SetActive(true);
         if (titleText != null) titleText.text = title ?? "";
         bodyText.text = message ?? "";
 
-        // wait realtime
+        // Fade in
+        yield return StartCoroutine(FadeIn());
+
+        // Wait using unscaled time
         float elapsed = 0f;
         while (elapsed < durationSeconds)
         {
@@ -115,11 +181,11 @@ public class LevelUpUI : MonoBehaviour
             yield return null;
         }
 
-        // hide
+        // Fade out and clear
+        yield return StartCoroutine(FadeOut());
+
         bodyText.text = "";
         if (titleText != null) titleText.text = "";
-        panel.SetActive(false);
-        yield break;
     }
 
     /// <summary>
@@ -129,6 +195,19 @@ public class LevelUpUI : MonoBehaviour
     {
         if (messages == null || messages.Count == 0) yield break;
 
+        // Only allow one active sequence at a time; if one is running, wait for it to finish
+        if (activeSequence != null)
+        {
+            yield return activeSequence;
+        }
+
+        activeSequence = StartCoroutine(RunSequenceNonBlocking(messages, perMessageDuration));
+        yield return activeSequence;
+        activeSequence = null;
+    }
+
+    private IEnumerator RunSequenceNonBlocking(List<string> messages, float perMessageDuration)
+    {
         foreach (var msg in messages)
         {
             yield return StartCoroutine(ShowNonBlocking("Notification", msg, perMessageDuration));
