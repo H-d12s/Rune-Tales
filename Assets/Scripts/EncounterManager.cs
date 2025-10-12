@@ -114,8 +114,9 @@ public class EncounterManager : MonoBehaviour
         int enemyCount = Random.Range(1, 4);
         for (int i = 0; i < enemyCount; i++)
         {
-            var randomEnemy = region.possibleEnemies[Random.Range(0, region.possibleEnemies.Count)];
-            team.Add(randomEnemy);
+           var randomEnemy = region.possibleEnemies[Random.Range(0, region.possibleEnemies.Count)];
+            var scaledEnemy = EnemyStatScaler.GetScaledEnemy(randomEnemy, currentEncounter);
+            team.Add(scaledEnemy);
         }
 
         return team;

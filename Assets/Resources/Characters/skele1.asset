@@ -10,11 +10,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3d8bff1d514ab874c8aed0c2f9fb2263, type: 3}
-  m_Name: Orc
+  m_Name: skele1
   m_EditorClassIdentifier: 
-  characterName: Orc Rider
-  characterTag: boss
-  portrait: {fileID: -2086825614362164317, guid: fc97f21feb3223b4bb94438fc3543fc4, type: 3}
+  characterName: Orc
+  characterTag: goblin
+  portrait: {fileID: -1365949498890891276, guid: 7bcca12306baffa43817b85ce3a3df81, type: 3}
   baseHP: 50
   baseAttack: 10
   baseDefense: 10
