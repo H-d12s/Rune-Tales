@@ -1399,12 +1399,26 @@ private IEnumerator ProcessMessageQueue()
         }
 
         bool startedTyped = false;
+        var narrator = FindObjectOfType<BattleNarrator>();
+
         if (messageUI != null)
         {
             try
             {
-                activeMessageCoroutine =
-                    StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
+                // If we have a narrator, use the persistent typing variant so the panel doesn't auto-hide
+                if (narrator != null)
+                {
+                    // ShowMessagePersistent should NOT auto-hide at the end — caller will hide it after TTS finishes.
+                    activeMessageCoroutine =
+                        StartCoroutine(RunAndMark(messageUI.ShowMessagePersistent(req.text), () => typedDone = true));
+                }
+                else
+                {
+                    // No narrator: use normal typed message which will auto-hide itself.
+                    activeMessageCoroutine =
+                        StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
+                }
+
                 startedTyped = true;
             }
             catch (System.Exception ex)
@@ -1419,24 +1433,25 @@ private IEnumerator ProcessMessageQueue()
             typedDone = true;
         }
 
-        var tts = FindObjectOfType<MurfTTSStream>();
-        if (tts != null)
+        // Start narrator/TTS if present
+        if (narrator != null)
         {
             try
             {
                 string ttsContext = "battle";
-                float ttsPadding = 0.12f;
-                StartCoroutine(RunAndMark(tts.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding),
+                float ttsPadding = 0.12f; // passed as timeout to SpeakAndWaitCoroutine
+                StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine(ttsContext, req.text, ttsPadding),
                                           () => ttsDone = true));
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"⚠️ Failed to start TTS for message '{req.text}': {ex.Message}");
+                Debug.LogWarning($"⚠️ Failed to start BattleNarrator for message '{req.text}': {ex.Message}");
                 ttsDone = true;
             }
         }
         else
         {
+            // no narrator found -> don't block on TTS
             ttsDone = true;
         }
 
@@ -1454,17 +1469,25 @@ private IEnumerator ProcessMessageQueue()
         }
 
         // Wait until both finished or a safety timeout OR until someone externally marks req.completed
-       float safetyTimeout = 12f; // seconds (adjust if needed)
-float elapsed = 0f;
-while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
-{
-    elapsed += Time.unscaledDeltaTime;
-    yield return null;
-}
+        float safetyTimeout = 12f; // seconds (adjust if needed)
+        float elapsed = 0f;
+        while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
 
+        // If we timed out or TTS failed, log and continue.
         if (!(typedDone && ttsDone) && !req.completed)
         {
             Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
+        }
+
+        // If we used persistent message (narrator != null), make sure to explicitly hide/clear it so it doesn't stick.
+        if (messageUI != null && narrator != null)
+        {
+            // HideInstant also clears the persistent flag in your BattleMessageUI implementation.
+            try { messageUI.HideInstant(); } catch { }
         }
 
         // Clear active typed reference
@@ -1484,6 +1507,7 @@ while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
     // clear the stored coroutine handle
     messageQueueCoroutine = null;
 }
+
 
 
 

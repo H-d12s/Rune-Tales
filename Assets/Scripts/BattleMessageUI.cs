@@ -257,4 +257,37 @@ public class BattleMessageUI : MonoBehaviour
         // Clear persistent flag too
         isPersistentMessageActive = false;
     }
+    /// <summary>
+/// Typewriter-style message that DOES NOT auto-hide at the end.
+/// Caller is responsible for HideInstant() or ClearPersistentMessage() afterwards.
+/// </summary>
+public IEnumerator ShowMessagePersistent(string message)
+{
+    // Stop previous routines
+    StopActiveRoutine();
+
+    if (messagePanel == null || messageText == null)
+    {
+        Debug.LogWarning("⚠️ BattleMessageUI missing references!");
+        yield break;
+    }
+
+    if (!messagePanel.activeInHierarchy) messagePanel.SetActive(true);
+
+    // mark persistent so TypeTextCoroutine won't auto-hide at the end
+    isPersistentMessageActive = true;
+
+    // type text
+    typingCoroutine = StartCoroutine(TypeTextCoroutine(message));
+    // But TypeTextCoroutine currently hides at the end when !isPersistentMessageActive.
+    // Because we set isPersistentMessageActive = true, it will not auto-hide.
+    activeRoutine = typingCoroutine;
+
+    yield return typingCoroutine;
+
+    // don't clear isPersistentMessageActive here — caller will call HideInstant() or ClearPersistentMessage()
+    typingCoroutine = null;
+    activeRoutine = null;
+}
+
 }
