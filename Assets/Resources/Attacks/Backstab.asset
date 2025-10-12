@@ -16,7 +16,7 @@ MonoBehaviour:
   description: 
   icon: {fileID: 0}
   power: 1
-  maxUsage: 10
+  maxUsage: 250
   chargeValue: 0
   isAoE: 0
   diceMin: 7
@@ -57,4 +57,4 @@ MonoBehaviour:
   modifiesNextDice: 0
   nextDiceMin: 1
   nextDiceMax: 10
-  currentUsage: 4
+  currentUsage: 250

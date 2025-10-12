@@ -1,12 +1,15 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Linq;
+using UnityEngine;
+
 /// <summary>
-/// Handles XP gain, level-ups, stat growth and queues move-learn prompts.
-/// Adjusted so prompts are grouped per-character and UI behavior is robust.
-/// Now: level-up & move-learn notifications are shown via LevelUpUI (separate panel).
+/// Handles XP gain, level-ups, stat growth and queued move-learn notifications.
+/// - Interactive move-replace prompts have been removed. When a new move is learned
+///   and the equipped list is full, the first move (index 0) is automatically replaced.
+/// - Level-up & move-learn notifications are shown via LevelUpUI when available,
+///   otherwise fallback to BattleManager's ShowBattleMessage queue.
 /// </summary>
 public class ExperienceSystem : MonoBehaviour
 {
@@ -14,30 +17,31 @@ public class ExperienceSystem : MonoBehaviour
     public int baseXPRequired = 50;
     public float growthRate = 1.2f;
 
+    [Header("UI")]
     public LevelUpUI levelUpUI;
 
-
-    private BattleManager battleManager;
-
+    [Header("Gameplay")]
     public int maxLevel = 30;
 
-    [Header("Debug Info")]
+    [Header("Debug")]
     public int totalXPThisBattle;
 
+    private BattleManager battleManager;
     private List<CharacterBattleController> playerControllers;
+
+    // persistent stored XP across sessions (characterName -> xp)
     private static Dictionary<string, int> PlayerXPData = new Dictionary<string, int>();
 
-    // Flag & queue for post-battle processing
+    // pending levels (runtime, level) recorded while in battle; processed after battle
+    private List<(CharacterRuntime runtime, int level)> pendingLevelUpQueue = new List<(CharacterRuntime, int)>();
+
     private bool isProcessingLevelUps = false;
     public bool IsProcessingLevelUps => isProcessingLevelUps;
 
-    // Queue of (runtime, level) for each level the runtime reached during this battle
-    private List<(CharacterRuntime runtime, int level)> pendingLevelUpQueue = new List<(CharacterRuntime, int)>();
-
-    // Event fired when stored XP for a character changes: (characterName, storedXP)
+    // event when stored XP changes
     public event Action<string, int> OnXPUpdated;
 
-    #region Public API helpers
+    #region Public API
 
     public int GetStoredXPFor(string characterName)
     {
@@ -53,130 +57,74 @@ public class ExperienceSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Called by BattleManager after victory to process all queued level-up move prompts
-    /// in order, pausing the game until the player finishes each prompt.
-    /// NOTE: we group prompts by runtime so a character that leveled multiple times
-    /// is handled in a single contiguous sequence of prompts.
+    /// Initialize ExperienceSystem once a battle begins.
+    /// Assigns the player team and battle manager and resolves LevelUpUI if not set.
     /// </summary>
-    public IEnumerator ProcessPendingMovePrompts()
+    public void Initialize(List<CharacterBattleController> playerTeam, BattleManager manager)
     {
-        if (pendingLevelUpQueue == null || pendingLevelUpQueue.Count == 0)
-            yield break;
+        playerControllers = playerTeam;
+        battleManager = manager;
+        totalXPThisBattle = 0;
 
-        isProcessingLevelUps = true;
-
-        // Group queued entries by runtime so we handle all levels for a single character at once
-        var grouped = new Dictionary<CharacterRuntime, List<int>>();
-        foreach (var entry in pendingLevelUpQueue)
+        if (levelUpUI == null)
         {
-            if (entry.runtime == null) continue;
-            if (!grouped.ContainsKey(entry.runtime)) grouped[entry.runtime] = new List<int>();
-            grouped[entry.runtime].Add(entry.level);
-        }
+            // prefer active scene object
+            levelUpUI = FindObjectOfType<LevelUpUI>();
 
-        // Sort levels for each runtime (ascending) and process characters in the order they were queued
-        foreach (var kv in grouped)
-        {
-            var runtime = kv.Key;
-            var levels = kv.Value;
-            levels.Sort();
-
-            // Process each level for this runtime (keeps prompts contiguous per character)
-            foreach (int level in levels)
+            // fallback: find in all loaded objects (may include disabled prefabs)
+            if (levelUpUI == null)
             {
-                // small frame delay to ensure UI updates between characters
-                yield return null;
-                yield return StartCoroutine(LearnNewAttacksAtLevelCoroutine(runtime, level));
-
-                // brief pause to let messages finish/hide before next prompt starts
-                yield return new WaitForSecondsRealtime(0.05f);
+                var all = Resources.FindObjectsOfTypeAll<LevelUpUI>();
+                if (all != null && all.Length > 0) levelUpUI = all.First();
             }
         }
 
-        // Clear queue after processing
-        pendingLevelUpQueue.Clear();
-        isProcessingLevelUps = false;
-        yield break;
+        Debug.Log($"[ExperienceSystem] LevelUpUI resolved: {(levelUpUI != null ? "FOUND" : "NOT FOUND")}");
     }
 
-    #endregion
-
-   public void Initialize(List<CharacterBattleController> playerTeam, BattleManager manager)
-{
-    playerControllers = playerTeam;
-    battleManager = manager;
-    totalXPThisBattle = 0;
-
-    // Try to use inspector assignment first (if you manually set it)
-    if (levelUpUI == null)
-    {
-        // First try the normal FindObjectOfType (will only find active objects)
-        levelUpUI = FindObjectOfType<LevelUpUI>();
-
-        // If not found, also search all loaded objects (this includes disabled objects & prefabs)
-        if (levelUpUI == null)
-        {
-            var all = Resources.FindObjectsOfTypeAll<LevelUpUI>();
-            if (all != null && all.Length > 0)
-                levelUpUI = all.First();
-        }
-    }
-
-    Debug.Log($"[ExperienceSystem] LevelUpUI resolved: {(levelUpUI != null ? "FOUND" : "NOT FOUND")}");
-
-    if (PersistentPlayerData.Instance != null)
-    {
-        foreach (var controller in playerControllers)
-        {
-            var runtime = controller.GetRuntimeCharacter();
-            if (runtime == null) continue;
-            if (PlayerXPData.ContainsKey(runtime.baseData.characterName))
-                Debug.Log($"♻️ Restored XP for {runtime.baseData.characterName}: {PlayerXPData[runtime.baseData.characterName]} XP");
-        }
-    }
-}
-
+    /// <summary>
+    /// Called by BattleManager when an enemy is defeated to grant XP to players.
+    /// </summary>
     public void GrantXP(CharacterData enemyData)
     {
-        if (enemyData == null || playerControllers == null)
-            return;
+        if (enemyData == null || playerControllers == null) return;
 
         int xpReward = enemyData.expReward;
         totalXPThisBattle += xpReward;
-
         Debug.Log($"⭐ Enemy defeated! Gained {xpReward} XP!");
 
         foreach (var controller in playerControllers)
         {
-            if (controller == null || controller.GetRuntimeCharacter() == null || !controller.GetRuntimeCharacter().IsAlive)
-                continue;
-
-            AddXP(controller.GetRuntimeCharacter(), xpReward);
+            if (controller == null) continue;
+            var runtime = controller.GetRuntimeCharacter();
+            if (runtime == null || !runtime.IsAlive) continue;
+            AddXP(runtime, xpReward);
         }
 
         if (PersistentPlayerData.Instance != null)
             PersistentPlayerData.Instance.SaveAllPlayers(playerControllers);
     }
 
+    #endregion
+
+    #region XP / Level logic
+
     private void AddXP(CharacterRuntime runtime, int amount)
     {
-        if (runtime == null || runtime.currentLevel >= maxLevel)
-            return;
-
-        string name = runtime.baseData.characterName;
+        if (runtime == null || runtime.currentLevel >= maxLevel) return;
+        string name = runtime.baseData?.characterName;
         if (string.IsNullOrEmpty(name)) return;
 
-        if (!PlayerXPData.ContainsKey(name))
-            PlayerXPData[name] = 0;
+        if (!PlayerXPData.ContainsKey(name)) PlayerXPData[name] = 0;
 
         PlayerXPData[name] += amount;
         int currentXP = PlayerXPData[name];
         int xpToNext = GetXPToNextLevel(runtime.currentLevel);
 
         OnXPUpdated?.Invoke(name, currentXP);
-
         Debug.Log($"🧮 {name}: {currentXP}/{xpToNext} XP");
 
+        // handle possibly multiple level-ups from a single XP gain
         while (currentXP >= xpToNext && runtime.currentLevel < maxLevel)
         {
             currentXP -= xpToNext;
@@ -186,15 +134,14 @@ public class ExperienceSystem : MonoBehaviour
             ApplyStatGrowth(runtime);
             Debug.Log($"⬆️ {name} leveled up! (Now Level {runtime.currentLevel})");
 
-            // Use LevelUpUI if available, otherwise fallback to BattleManager queue
+            // show a quick level-up notification
             ShowLevelUpPopup(name, runtime.currentLevel);
 
-            // Queue this exact level for post-battle processing (moves unlocked at that level)
+            // queue this level for post-battle processing (e.g., learn moves unlocked at this level)
             pendingLevelUpQueue.Add((runtime, runtime.currentLevel));
         }
 
         PlayerXPData[name] = currentXP;
-
         OnXPUpdated?.Invoke(name, currentXP);
 
         if (PersistentPlayerData.Instance != null)
@@ -206,9 +153,10 @@ public class ExperienceSystem : MonoBehaviour
         if (runtime == null || runtime.baseData == null) return;
 
         var data = runtime.baseData;
-        string tag = data.characterTag?.ToLower() ?? "";
+        string tag = (data.characterTag ?? "").ToLowerInvariant();
 
-        float hpGrowth = 0.1f;
+        // default growth rates
+        float hpGrowth = 0.10f;
         float atkGrowth = 0.08f;
         float defGrowth = 0.07f;
         float spdGrowth = 0.05f;
@@ -216,76 +164,106 @@ public class ExperienceSystem : MonoBehaviour
         switch (tag)
         {
             case "warrior":
-                hpGrowth = 0.2f; atkGrowth = 0.15f; defGrowth = 0.1f; spdGrowth = 0.03f;
+                hpGrowth = 0.20f; atkGrowth = 0.15f; defGrowth = 0.10f; spdGrowth = 0.03f;
                 break;
             case "mage":
-                hpGrowth = 0.1f; atkGrowth = 0.2f; defGrowth = 0.05f; spdGrowth = 0.05f;
+                hpGrowth = 0.10f; atkGrowth = 0.20f; defGrowth = 0.05f; spdGrowth = 0.05f;
                 break;
             case "rogue":
-                hpGrowth = 0.1f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.15f;
+                hpGrowth = 0.10f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.15f;
                 break;
             case "tank":
                 hpGrowth = 0.25f; atkGrowth = 0.08f; defGrowth = 0.15f; spdGrowth = 0.02f;
                 break;
             case "archer":
-                hpGrowth = 0.1f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.12f;
+                hpGrowth = 0.10f; atkGrowth = 0.12f; defGrowth = 0.05f; spdGrowth = 0.12f;
                 break;
-            case "assassin":
-                hpGrowth = 0.25f; atkGrowth = 0.08f; defGrowth = 0.05f; spdGrowth = 0.12f;
-                break;
-            case "pyromancer":
-                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
-                break;
-            case "gunslinger":
-                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
-                break;
-            case "priest":
-                hpGrowth = 0.2f; atkGrowth = 0.09f; defGrowth = 0.15f; spdGrowth = 0.12f;
-                break;
+            // add extra classes if needed
         }
 
-        runtime.runtimeHP = Mathf.RoundToInt(runtime.runtimeHP * (1 + hpGrowth));
-        runtime.runtimeAttack = Mathf.RoundToInt(runtime.runtimeAttack * (1 + atkGrowth));
-        runtime.runtimeDefense = Mathf.RoundToInt(runtime.runtimeDefense * (1 + defGrowth));
-        runtime.runtimeSpeed = Mathf.RoundToInt(runtime.runtimeSpeed * (1 + spdGrowth));
+        runtime.runtimeHP = Mathf.Max(1, Mathf.RoundToInt(runtime.runtimeHP * (1f + hpGrowth)));
+        runtime.runtimeAttack = Mathf.Max(0, Mathf.RoundToInt(runtime.runtimeAttack * (1f + atkGrowth)));
+        runtime.runtimeDefense = Mathf.Max(0, Mathf.RoundToInt(runtime.runtimeDefense * (1f + defGrowth)));
+        runtime.runtimeSpeed = Mathf.Max(0, Mathf.RoundToInt(runtime.runtimeSpeed * (1f + spdGrowth)));
 
         runtime.currentHP = runtime.runtimeHP;
 
-        Debug.Log($"📈 {data.characterName} stats increased (runtime only)!");
-        Debug.Log($"HP: {runtime.runtimeHP}, ATK: {runtime.runtimeAttack}, DEF: {runtime.runtimeDefense}, SPD: {runtime.runtimeSpeed}");
+        Debug.Log($"📈 {data.characterName} stats increased (runtime): HP {runtime.runtimeHP}, ATK {runtime.runtimeAttack}, DEF {runtime.runtimeDefense}, SPD {runtime.runtimeSpeed}");
     }
 
-    // ============================
-    // Move-learn logic for a specific level (only new moves that unlock at that level)
-    // Modified: collect learn messages and flush them through LevelUpUI so they do not touch BattleMessageUI
-    // ============================
-    private IEnumerator LearnNewAttacksAtLevelCoroutine(CharacterRuntime runtime, int level)
+    #endregion
+
+    #region Move learn processing (auto-replace first move)
+
+    /// <summary>
+    /// Process all pending queued level-ups after the battle ends.
+    /// Groups by runtime and processes levels for each runtime in the order they were queued.
+    /// </summary>
+    public IEnumerator ProcessPendingMovePrompts()
     {
-        if (runtime == null || runtime.baseData == null)
+        if (pendingLevelUpQueue == null || pendingLevelUpQueue.Count == 0)
             yield break;
 
-        var attacksAtLevel = runtime.baseData.GetAvailableAttacks(level) ?? new List<AttackData>();
-        var attacksPrev = level > 1 ? runtime.baseData.GetAvailableAttacks(level - 1) ?? new List<AttackData>() : new List<AttackData>();
+        isProcessingLevelUps = true;
 
-        var prevNames = new HashSet<string>();
-        foreach (var a in attacksPrev)
-            if (a != null && !string.IsNullOrEmpty(a.attackName))
-                prevNames.Add(a.attackName);
+        // Preserve the order of runtimes as they were queued.
+        var grouped = new Dictionary<CharacterRuntime, List<int>>();
+        var runtimeOrder = new List<CharacterRuntime>();
+
+        foreach (var entry in pendingLevelUpQueue)
+        {
+            if (entry.runtime == null) continue;
+            if (!grouped.ContainsKey(entry.runtime))
+            {
+                grouped[entry.runtime] = new List<int>();
+                runtimeOrder.Add(entry.runtime);
+            }
+            grouped[entry.runtime].Add(entry.level);
+        }
+
+        // Process in original order
+        foreach (var runtime in runtimeOrder)
+        {
+            if (!grouped.TryGetValue(runtime, out var levels)) continue;
+            levels.Sort();
+
+            foreach (var lvl in levels)
+            {
+                // small frame to allow UI updating
+                yield return null;
+                yield return StartCoroutine(LearnNewAttacksAtLevelCoroutine(runtime, lvl));
+                yield return new WaitForSecondsRealtime(0.05f);
+            }
+        }
+
+        pendingLevelUpQueue.Clear();
+        isProcessingLevelUps = false;
+        yield break;
+    }
+
+    /// <summary>
+    /// For a single runtime and level, determine attacks that unlock at that level.
+    /// If the runtime's equipped list has space, append. If it's full, automatically replace index 0.
+    /// Collected messages are displayed via LevelUpUI (or BattleManager fallback).
+    /// </summary>
+    private IEnumerator LearnNewAttacksAtLevelCoroutine(CharacterRuntime runtime, int level)
+    {
+        if (runtime == null || runtime.baseData == null) yield break;
+
+        var attacksAtLevel = runtime.baseData.GetAvailableAttacks(level) ?? new List<AttackData>();
+        var attacksPrev = (level > 1) ? runtime.baseData.GetAvailableAttacks(level - 1) ?? new List<AttackData>() : new List<AttackData>();
+
+        var prevNames = new HashSet<string>(attacksPrev.Where(a => a != null).Select(a => a.attackName));
 
         var newAttacks = new List<AttackData>();
         foreach (var a in attacksAtLevel)
         {
-            if (a == null || string.IsNullOrEmpty(a.attackName)) continue;
+            if (a == null) continue;
+            if (string.IsNullOrEmpty(a.attackName)) continue;
             if (prevNames.Contains(a.attackName)) continue;
 
-            bool alreadyKnown = false;
-            if (runtime.equippedAttacks != null)
-            {
-                foreach (var known in runtime.equippedAttacks)
-                {
-                    if (known != null && known.attackName == a.attackName) { alreadyKnown = true; break; }
-                }
-            }
+            // skip if already known by runtime
+            bool alreadyKnown = runtime.equippedAttacks?.Any(k => k != null && k.attackName == a.attackName) ?? false;
             if (alreadyKnown) continue;
 
             newAttacks.Add(a);
@@ -293,10 +271,9 @@ public class ExperienceSystem : MonoBehaviour
 
         if (newAttacks.Count == 0) yield break;
 
-        // Local list to accumulate learn-notification messages for this runtime/level.
-        var learnMessages = new List<string>();
+        List<string> learnMessages = new List<string>();
 
-        // Helper: restore Battle UI for this runtime (if a controller exists)
+        // helper: try to refresh battle UI so players see updated moves immediately
         Action restoreUIForRuntime = () =>
         {
             try
@@ -305,16 +282,10 @@ public class ExperienceSystem : MonoBehaviour
                 if (ui == null) return;
 
                 CharacterBattleController foundController = null;
-                var allCtrls = FindObjectsOfType<CharacterBattleController>();
-                foreach (var c in allCtrls)
+                foreach (var c in FindObjectsOfType<CharacterBattleController>())
                 {
                     if (c == null) continue;
-                    var r = c.GetRuntimeCharacter();
-                    if (r == runtime)
-                    {
-                        foundController = c;
-                        break;
-                    }
+                    if (c.GetRuntimeCharacter() == runtime) { foundController = c; break; }
                 }
 
                 if (foundController != null)
@@ -323,63 +294,48 @@ public class ExperienceSystem : MonoBehaviour
                     try { ui.ShowMainActions(); } catch { }
                 }
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"Restore UI failed: {ex}");
-            }
+            catch (Exception ex) { Debug.LogWarning($"Restore UI failed: {ex}"); }
         };
+
+        // Ensure equippedAttacks list exists
+        if (runtime.equippedAttacks == null) runtime.equippedAttacks = new List<AttackData>();
 
         foreach (var newAttack in newAttacks)
         {
             if (newAttack == null) continue;
 
-            bool knownByName = false;
-            if (runtime.equippedAttacks != null)
+            // If there's room, learn directly
+            if (runtime.equippedAttacks.Count < 2)
             {
-                foreach (var k in runtime.equippedAttacks)
-                    if (k != null && k.attackName == newAttack.attackName) { knownByName = true; break; }
-            }
-            if (knownByName) continue;
-
-            // If there's room, auto-learn (accumulate message)
-            if (runtime.equippedAttacks == null || runtime.equippedAttacks.Count < 2)
-            {
-                if (runtime.equippedAttacks == null)
-                    runtime.equippedAttacks = new List<AttackData>();
-
                 runtime.equippedAttacks.Add(newAttack);
-
-                // Accumulate message (we'll flush after processing all newAttacks for this runtime/level)
-                var who = runtime.baseData?.characterName ?? "Unknown";
-                learnMessages.Add($"{who} learned a new attack: {newAttack.attackName}!");
+                learnMessages.Add($"{runtime.baseData.characterName} learned a new attack: {newAttack.attackName}!");
 
                 if (PersistentPlayerData.Instance != null)
                     PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
 
-                // Restore the battle UI so the attack buttons reappear (important for auto-learn)
                 restoreUIForRuntime();
-
                 yield return new WaitForSecondsRealtime(0.05f);
+                continue;
             }
-            else
-            {
-                // Full move list — hand off to the prompt manager which will return when finished.
-                // We pass learnMessages so the prompt coroutine can append to it when an attack is learned.
-                yield return StartCoroutine(PromptMoveReplaceCoroutine(runtime, newAttack, learnMessages));
 
-                // After the player finishes (either replaced or cancelled), restore the battle UI
-                restoreUIForRuntime();
+            // Otherwise: AUTO-REPLACE the first move (index 0)
+            var oldAttack = runtime.equippedAttacks[0];
+            runtime.equippedAttacks[0] = newAttack;
 
-                yield return new WaitForSecondsRealtime(0.05f);
-            }
+            learnMessages.Add($"{runtime.baseData.characterName} forgot {oldAttack?.attackName ?? "(unknown)"} and learned {newAttack.attackName}!");
+
+            if (PersistentPlayerData.Instance != null)
+                PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
+
+            restoreUIForRuntime();
+            yield return new WaitForSecondsRealtime(0.05f);
         }
 
-        // After processing all newAttacks for this runtime/level, flush accumulated learn messages
+        // Display accumulated learn messages (non-blocking)
         if (learnMessages.Count > 0)
         {
             if (levelUpUI != null)
             {
-                // non-blocking sequence via LevelUpUI so the flow looks identical to level-up popups
                 yield return StartCoroutine(levelUpUI.ShowSequenceNonBlocking(learnMessages, levelUpUI.defaultAutoHideSeconds));
             }
             else if (battleManager != null)
@@ -387,7 +343,6 @@ public class ExperienceSystem : MonoBehaviour
                 foreach (var msg in learnMessages)
                 {
                     yield return new WaitForSecondsRealtime(0.08f);
-                    // fallback to BattleManager queue non-blocking
                     yield return StartCoroutine(battleManager.ShowBattleMessage(msg, false));
                 }
             }
@@ -398,92 +353,45 @@ public class ExperienceSystem : MonoBehaviour
         }
     }
 
-    // Modified PromptMoveReplaceCoroutine to accept a learnMessages list to append to
-    private IEnumerator PromptMoveReplaceCoroutine(CharacterRuntime runtime, AttackData newAttack, List<string> learnMessages)
+    #endregion
+
+    #region ShowLevelUpPopup helper (fix for missing method error)
+
+    /// <summary>
+    /// Small helper to display a quick level-up notification. Uses LevelUpUI if available,
+    /// otherwise falls back to BattleManager ShowBattleMessage (non-blocking) or Debug.Log.
+    /// </summary>
+    private void ShowLevelUpPopup(string charName, int newLevel)
     {
-        if (runtime == null || runtime.baseData == null || newAttack == null)
-            yield break;
-
-        // build list of equipped move names for display
-        var moveNames = new List<string>();
-        if (runtime.equippedAttacks != null)
+        string msg = $"{charName} reached Level {newLevel}!";
+        if (levelUpUI != null)
         {
-            foreach (var a in runtime.equippedAttacks)
-                moveNames.Add(a != null ? a.attackName : "(unknown)");
+            // non-blocking via LevelUpUI (so it doesn't block processing here)
+            levelUpUI.StartCoroutine(levelUpUI.ShowNonBlocking("Level Up!", msg, levelUpUI.defaultAutoHideSeconds));
         }
-
-        // Show the simple persistent prompt (MoveReplaceUIManager will keep the panel visible)
-        if (MoveReplaceUIManager.Instance != null)
+        else if (battleManager != null)
         {
-            MoveReplaceUIManager.Instance.ShowReplacePrompt(runtime.baseData.characterName, moveNames, newAttack.attackName);
-
-            // Wait until player chooses or cancels
-            yield return new WaitUntil(() => !MoveReplaceUIManager.Instance.IsAwaitingChoice);
-
-            // If cancelled
-            if (MoveReplaceUIManager.Instance.WasCancelled)
-            {
-                Debug.Log($"🕊️ {runtime.baseData.characterName} decided NOT to learn {newAttack.attackName}.");
-                yield break;
-            }
-
-            int chosenIndex = MoveReplaceUIManager.Instance.LastSelectedIndex;
-            if (chosenIndex < 0 || chosenIndex >= runtime.equippedAttacks.Count)
-            {
-                Debug.LogWarning("⚠️ Invalid move index chosen. Aborting learn.");
-                yield break;
-            }
-
-            var oldAttack = runtime.equippedAttacks[chosenIndex];
-            runtime.equippedAttacks[chosenIndex] = newAttack;
-
-            Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack?.attackName ?? "(unknown)"} and learned {newAttack.attackName}!");
-
-            // Instead of showing the message immediately, append to the learnMessages list
-            var who = runtime.baseData?.characterName ?? "Unknown";
-            learnMessages.Add($"{who} learned a new attack: {newAttack.attackName}!");
-
-            if (PersistentPlayerData.Instance != null)
-                PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
-
-            yield return null;
+            battleManager.StartCoroutine(battleManager.ShowBattleMessage(msg, false));
         }
         else
         {
-            Debug.LogWarning("⚠️ MoveReplaceUIManager not found — auto-replacing first move.");
-            if (runtime.equippedAttacks != null && runtime.equippedAttacks.Count > 0)
-            {
-                var oldAttack = runtime.equippedAttacks[0];
-                runtime.equippedAttacks[0] = newAttack;
-                Debug.Log($"🔄 {runtime.baseData.characterName} forgot {oldAttack?.attackName ?? "(unknown)"} and learned {newAttack.attackName}!");
-
-                var who = runtime.baseData?.characterName ?? "Unknown";
-                learnMessages.Add($"{who} learned a new attack: {newAttack.attackName}!");
-
-                if (PersistentPlayerData.Instance != null) PersistentPlayerData.Instance.UpdateFromRuntime(runtime);
-            }
-            yield return null;
+            Debug.Log($"🎉 {msg}");
         }
     }
 
-    // Use LevelUpUI or BattleManager's message queue when possible (non-blocking notification)
-   private void ShowLevelUpPopup(string charName, int newLevel)
-{
-    string msg = $"{charName} reached Level {newLevel}!";
-    if (levelUpUI != null)
-    {
-        // non-blocking via LevelUpUI (so it doesn't block processing here)
-        levelUpUI.StartCoroutine(levelUpUI.ShowNonBlocking("Level Up!", msg, levelUpUI.defaultAutoHideSeconds));
-    }
-    else if (battleManager != null)
-    {
-        Debug.LogWarning("[ExperienceSystem] LevelUpUI not found - falling back to BattleManager messages.");
-        battleManager.StartCoroutine(battleManager.ShowBattleMessage(msg, false));
-    }
-    else
-    {
-        Debug.Log($"🎉 {msg}");
-    }
-}
+    #endregion
 
+    #region Utilities / Debug
+
+    /// <summary>
+    /// Forcibly set stored XP for a character (debug / external callers).
+    /// </summary>
+    public void SetStoredXP(string characterName, int xp)
+    {
+        if (string.IsNullOrEmpty(characterName)) return;
+        PlayerXPData[characterName] = Mathf.Max(0, xp);
+        OnXPUpdated?.Invoke(characterName, PlayerXPData[characterName]);
+    }
+
+    #endregion
 }

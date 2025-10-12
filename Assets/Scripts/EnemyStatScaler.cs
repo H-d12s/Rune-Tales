@@ -43,4 +43,8 @@ public static class EnemyStatScaler
 
         return scaledEnemy;
     }
+<<<<<<< Updated upstream
 }
+=======
+}
+>>>>>>> Stashed changes

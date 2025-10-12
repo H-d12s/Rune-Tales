@@ -2311,7 +2311,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dfc1e5a229ed84b4a9b311d8d9ffbb93, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  baseXPRequired: 60
+  baseXPRequired: 20
   growthRate: 1.2
   levelUpUI: {fileID: 0}
   maxLevel: 30

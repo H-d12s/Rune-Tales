@@ -15,8 +15,8 @@ MonoBehaviour:
   attackName: Rend
   description: Steals Life force from the opponent and uses it to heal caster
   icon: {fileID: 0}
-  power: 10
-  maxUsage: 0
+  power: 1
+  maxUsage: 500
   chargeValue: 0
   isAoE: 0
   diceMin: 1
@@ -50,9 +50,11 @@ MonoBehaviour:
   conditionalStanceMultiplier: 0
   stanceMultiplier: 1
   affectsSelf: 0
+  manualBuffTargetSelection: 0
+  applyEffectsToSelf: 0
   modifiesNextAttack: 0
   nextAttackMultiplier: 1
   modifiesNextDice: 0
   nextDiceMin: 1
   nextDiceMax: 20
-  currentUsage: 0
+  currentUsage: 500

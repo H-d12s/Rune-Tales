@@ -96,34 +96,33 @@ public class BattleMessageUI : MonoBehaviour
     }
 
     private IEnumerator TypeTextCoroutine(string message)
-{
-    // Debug start
-    Debug.Log($"[BattleMessageUI] TypeTextCoroutine START — '{(message ?? "").Replace("\n", "\\n")}'");
-
-    // Typewriter
-    if (messageText != null) messageText.text = "";
-
-    foreach (char c in message)
     {
-        if (messageText != null) messageText.text += c;
-        // use real-time so typing continues if timeScale == 0
-        yield return new WaitForSecondsRealtime(typeSpeed);
-    }
+        // Debug start
+        Debug.Log($"[BattleMessageUI] TypeTextCoroutine START — '{(message ?? "").Replace("\n", "\\n")}'");
 
-    // Pause for readability (real-time)
-    yield return new WaitForSecondsRealtime(messageStayTime);
-
-    // Only auto-hide if not persistent
-    if (!isPersistentMessageActive)
-    {
-        if (messagePanel != null) messagePanel.SetActive(false);
+        // Typewriter
         if (messageText != null) messageText.text = "";
+
+        foreach (char c in message)
+        {
+            if (messageText != null) messageText.text += c;
+            // use real-time so typing continues if timeScale == 0
+            yield return new WaitForSecondsRealtime(typeSpeed);
+        }
+
+        // Pause for readability (real-time)
+        yield return new WaitForSecondsRealtime(messageStayTime);
+
+        // Only auto-hide if not persistent
+        if (!isPersistentMessageActive)
+        {
+            if (messagePanel != null) messagePanel.SetActive(false);
+            if (messageText != null) messageText.text = "";
+        }
+
+        // Debug end
+        Debug.Log($"[BattleMessageUI] TypeTextCoroutine END — finished message.");
     }
-
-    // Debug end
-    Debug.Log($"[BattleMessageUI] TypeTextCoroutine END — finished message.");
-}
-
 
     /// <summary>
     /// Show instantly (no typing). Use from any code.
@@ -140,18 +139,18 @@ public class BattleMessageUI : MonoBehaviour
     /// <summary>
     /// Show a message immediately and keep the panel visible until HidePersistentMessage is called.
     /// Intended for prompts that wait for player input (replace prompts).
-    /// A compatibility alias ShowPersistentMessage is also provided.
+    /// Important: do NOT stop the active typing routine here — this avoids cancelling an in-flight typed/TTS message.
     /// </summary>
     public void SetPersistentMessage(string text)
     {
-        StopActiveRoutine();
-
+        // Do NOT stop active routines here. Overwrite visible text and mark persistent so it won't auto-hide.
         if (messageText != null)
             messageText.text = text ?? "";
 
         if (messagePanel != null && !messagePanel.activeInHierarchy)
             messagePanel.SetActive(true);
 
+        // Mark persistent so auto-hide behavior in TypeTextCoroutine won't close the panel.
         isPersistentMessageActive = true;
     }
 
@@ -165,11 +164,12 @@ public class BattleMessageUI : MonoBehaviour
 
     /// <summary>
     /// Hide the persistent message and clear text. Alias ClearPersistentMessage kept for compatibility.
+    /// This version does not call StopActiveRoutine() so it doesn't accidentally cancel a currently-running
+    /// typed coroutine started elsewhere. It simply clears the UI and the persistent flag.
     /// </summary>
     public void HidePersistentMessage()
     {
-        StopActiveRoutine();
-
+        // Do NOT stop active routines here.
         if (messageText != null) messageText.text = "";
         if (messagePanel != null && messagePanel.activeInHierarchy) messagePanel.SetActive(false);
 
@@ -226,23 +226,23 @@ public class BattleMessageUI : MonoBehaviour
     /// Callers can StartCoroutine(...) on this if they want to wait.
     /// </summary>
     public IEnumerator ShowMessageThenHideInstantCoroutine(string text)
-{
-    ShowMessageInstant(text);
-
-    // Use unscaled wait
-    yield return new WaitForSecondsRealtime(messageStayTime);
-
-    if (!isPersistentMessageActive)
     {
-        if (messagePanel != null)
-        {
-            messagePanel.SetActive(false);
-            if (messageText != null) messageText.text = "";
-        }
-    }
+        ShowMessageInstant(text);
 
-    activeRoutine = null;
-}
+        // Use unscaled wait
+        yield return new WaitForSecondsRealtime(messageStayTime);
+
+        if (!isPersistentMessageActive)
+        {
+            if (messagePanel != null)
+            {
+                messagePanel.SetActive(false);
+                if (messageText != null) messageText.text = "";
+            }
+        }
+
+        activeRoutine = null;
+    }
 
     /// <summary>
     /// Immediately hide panel and stop any running helpers (compatibility method).
@@ -257,37 +257,36 @@ public class BattleMessageUI : MonoBehaviour
         // Clear persistent flag too
         isPersistentMessageActive = false;
     }
+
     /// <summary>
-/// Typewriter-style message that DOES NOT auto-hide at the end.
-/// Caller is responsible for HideInstant() or ClearPersistentMessage() afterwards.
-/// </summary>
-public IEnumerator ShowMessagePersistent(string message)
-{
-    // Stop previous routines
-    StopActiveRoutine();
-
-    if (messagePanel == null || messageText == null)
+    /// Typewriter-style message that DOES NOT auto-hide at the end.
+    /// Caller is responsible for HideInstant() or ClearPersistentMessage() afterwards.
+    /// </summary>
+    public IEnumerator ShowMessagePersistent(string message)
     {
-        Debug.LogWarning("⚠️ BattleMessageUI missing references!");
-        yield break;
+        // Stop previous routines
+        StopActiveRoutine();
+
+        if (messagePanel == null || messageText == null)
+        {
+            Debug.LogWarning("⚠️ BattleMessageUI missing references!");
+            yield break;
+        }
+
+        if (!messagePanel.activeInHierarchy) messagePanel.SetActive(true);
+
+        // mark persistent so TypeTextCoroutine won't auto-hide at the end
+        isPersistentMessageActive = true;
+
+        // type text
+        typingCoroutine = StartCoroutine(TypeTextCoroutine(message));
+        // Because we set isPersistentMessageActive = true, TypeTextCoroutine will not auto-hide at the end.
+        activeRoutine = typingCoroutine;
+
+        yield return typingCoroutine;
+
+        // don't clear isPersistentMessageActive here — caller will call HideInstant() or ClearPersistentMessage()
+        typingCoroutine = null;
+        activeRoutine = null;
     }
-
-    if (!messagePanel.activeInHierarchy) messagePanel.SetActive(true);
-
-    // mark persistent so TypeTextCoroutine won't auto-hide at the end
-    isPersistentMessageActive = true;
-
-    // type text
-    typingCoroutine = StartCoroutine(TypeTextCoroutine(message));
-    // But TypeTextCoroutine currently hides at the end when !isPersistentMessageActive.
-    // Because we set isPersistentMessageActive = true, it will not auto-hide.
-    activeRoutine = typingCoroutine;
-
-    yield return typingCoroutine;
-
-    // don't clear isPersistentMessageActive here — caller will call HideInstant() or ClearPersistentMessage()
-    typingCoroutine = null;
-    activeRoutine = null;
-}
-
 }

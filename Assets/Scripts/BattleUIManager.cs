@@ -260,7 +260,17 @@ public class BattleUIManager : MonoBehaviour
     /// Show small numeric indicators over each attack button and present a persistent message in the message panel.
     /// moveNames should be the list of currently equipped move names (in order). newMoveName shown in message.
     /// </summary>
-   public void ShowReplaceIndicators(List<string> moveNames, string newMoveName)
+  // ======================================================
+// Replace Indicators
+// ======================================================
+/// <summary>
+/// Show small numeric indicators over each attack button.
+/// This function ONLY creates visual indicators and does NOT alter
+/// or clear BattleManager/MessageUI state (no persistent message).
+/// moveNames should be the list of currently equipped move names (in order).
+/// newMoveName is kept for any optional HUD use but is not displayed in the message panel.
+/// </summary>
+public void ShowReplaceIndicators(List<string> moveNames, string newMoveName)
 {
     // defensive checks
     if (attackButtons == null || attackButtons.Count == 0)
@@ -330,43 +340,29 @@ public class BattleUIManager : MonoBehaviour
         activeReplaceIndicators.Add(indicator);
     }
 
-    // Also set a persistent message explaining controls (so keyboard users know)
-    var msgUI = FindFirstObjectByType<BattleMessageUI>();
-    var bm = FindFirstObjectByType<BattleManager>();
-    try
-    {
-        if (bm != null)
-        {
-            bm.CancelAndHideBattleMessage(); // clear any queued/active message to avoid races
-        }
-    }
-    catch { }
-
-    if (msgUI != null)
-    {
-        msgUI.SetPersistentMessage($"{playerController?.characterData?.characterName ?? "Your player"} can now learn a new attack ({newMoveName}).\nPress 1 to replace { (moveNames.Count > 0 ? moveNames[0] : "(none)") }." +
-                                   $"{(moveNames.Count > 1 ? $" Press 2 to replace {moveNames[1]}." : "")} Press N to exit and continue.");
-    }
+    // NOTE:
+    // We intentionally do NOT put a persistent message into BattleMessageUI here,
+    // nor do we cancel any queued messages in BattleManager. This method is purely visual now.
 }
 
 
     /// <summary>
     /// Clear any replace indicators we created.
     /// </summary>
-    public void ClearReplaceIndicators()
+   /// <summary>
+/// Clear any replace indicators we created.
+/// </summary>
+public void ClearReplaceIndicators()
+{
+    for (int i = 0; i < activeReplaceIndicators.Count; i++)
     {
-        for (int i = 0; i < activeReplaceIndicators.Count; i++)
-        {
-            var go = activeReplaceIndicators[i];
-            if (go != null) Destroy(go);
-        }
-        activeReplaceIndicators.Clear();
-
-        // Do not automatically hide message panel here; MoveReplaceUIManager will hide persistent prompts.
-        // But if you want to ensure we don't hold an accidental persistent message, you can uncomment below:
-        // var msgUI = FindFirstObjectByType<BattleMessageUI>();
-        // if (msgUI != null) msgUI.HidePersistentMessage();
+        var go = activeReplaceIndicators[i];
+        if (go != null) Destroy(go);
     }
+    activeReplaceIndicators.Clear();
+
+    // Do not touch BattleMessageUI here. Move-replace prompts are removed from the message panel.
+}
 
     // ======================================================
     // UI Panels
