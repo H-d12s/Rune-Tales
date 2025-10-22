@@ -42,7 +42,7 @@ public class BattleNarrator : MonoBehaviour
     [Serializable] public class ClearContext { public string context_id; public bool clear = true; }
     [Serializable] public class ClearContextMessage { public ClearContext clearContext; }
     [Serializable] private class MurfAudioMessage { public string type; public string audio; public string context_id; public bool final; }
-
+//hi
     private void Awake()
     {
         if (Instance != null && Instance != this)
