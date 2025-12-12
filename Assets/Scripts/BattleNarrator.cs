@@ -32,6 +32,9 @@ public class BattleNarrator : MonoBehaviour
     private bool isPlayingChunk = false;
     private Coroutine waitForEndCoroutine;
 
+    // cancellation flag for SpeakAndWait / Prepare
+    private bool _speakCancelled = false;
+
     [Serializable] public class VoiceConfig { public string voice_id; public string style; public int pitch; }
     [Serializable] public class VoiceConfigMessage { public VoiceConfig voice_config; }
     [Serializable] public class TTSRequest { public string context_id; public string text; public bool end = true; }
@@ -136,12 +139,16 @@ public class BattleNarrator : MonoBehaviour
         catch (Exception e) { Debug.LogWarning("[BattleNarrator] SendTurn error: " + e.Message); }
     }
 
-    public async void ClearContextTurn(string contextId)
+    /// <summary>
+    /// ClearContextTurn only notifies the server; it does NOT clear local playback.
+    /// Callers should call StopAndClearPlayback() locally first, then call _ = ClearContextTurn(...)
+    /// so network latency does not race local buffering.
+    /// </summary>
+    public async Task ClearContextTurn(string contextId)
     {
         if (websocket == null || websocket.State != WebSocketState.Open)
         {
-            // still clear local buffer
-            StopAndClearPlayback();
+            // Nothing to notify server about; return.
             return;
         }
 
@@ -151,8 +158,6 @@ public class BattleNarrator : MonoBehaviour
             await SendJson(clearMsg);
         }
         catch (Exception e) { Debug.LogWarning("[BattleNarrator] ClearContextTurn error: " + e.Message); }
-
-        StopAndClearPlayback();
     }
 
     public void SetAdvancedSettings(int minBufferSize, int maxBufferDelayInMs)
@@ -231,118 +236,142 @@ public class BattleNarrator : MonoBehaviour
     }
 
     /// <summary>
-    /// NEW: PrepareSpeech sends the TTS request and waits until a small initial chunk is buffered
-    /// or playback starts. This is intended for UI: wait for this before starting typewriter.
+    /// Send the text to TTS and wait briefly until Murf returns initial audio samples
+    /// or until playback starts. This is used so UI typing only begins once audio is ready.
     /// </summary>
-    /// <summary>
-/// Send the text to TTS and wait briefly until Murf returns initial audio samples
-/// or until playback starts. This is used so UI typing only begins once audio is ready.
-/// </summary>
-public IEnumerator PrepareSpeechCoroutine(string contextId, string text, float timeoutSeconds = 4f)
-{
-    if (string.IsNullOrEmpty(text)) yield break;
-    if (timeoutSeconds <= 0f) timeoutSeconds = 4f;
-
-    // If websocket not connected, don't block UI for audio that won't come.
-    if (websocket == null || websocket.State != WebSocketState.Open)
+    public IEnumerator PrepareSpeechCoroutine(string contextId, string text, float timeoutSeconds = 4f)
     {
-        // still send (or skip) — here we choose to not send and return immediately.
+        if (string.IsNullOrEmpty(text)) yield break;
+        if (timeoutSeconds <= 0f) timeoutSeconds = 4f;
+
+        // Don't block UI if websocket not ready
+        if (websocket == null || websocket.State != WebSocketState.Open)
+        {
+            yield break;
+        }
+
+        // Immediately clear local playback so we start from a deterministic state
+        StopAndClearPlayback();
+
+        // Tell server to clear its context (background fire-and-forget)
+        _ = ClearContextTurn(contextId);
+
+        // small frame for local clear
+        yield return null;
+
+        // Send text now
+        try { SendTurn(contextId, text); } catch { yield break; }
+
+        float start = Time.realtimeSinceStartup;
+        bool gotAudio = false;
+
+        while (Time.realtimeSinceStartup - start < timeoutSeconds)
+        {
+            if (_speakCancelled) { yield break; }
+
+            // Use the smaller minReadySamples threshold for readiness (so typing starts earlier)
+            if (audioBuffer != null && audioBuffer.Count >= Mathf.Max(minReadySamples, 1))
+            {
+                gotAudio = true;
+                break;
+            }
+            if (audioSource != null && (audioSource.isPlaying || isPlayingChunk))
+            {
+                gotAudio = true;
+                break;
+            }
+            yield return null;
+        }
+
+        // If no audio arrived within timeout, just return (UI will still proceed)
         yield break;
     }
 
-    // Clear previous context for a clean audio start
-    try { ClearContextTurn(contextId); } catch { }
-    // small frame to let clear take effect
-    yield return null;
-
-    // Send the text now
-    try { SendTurn(contextId, text); } catch { yield break; }
-
-    float start = Time.realtimeSinceStartup;
-    bool gotAudio = false;
-
-    while (Time.realtimeSinceStartup - start < timeoutSeconds)
-    {
-        if (audioBuffer != null && audioBuffer.Count >= minPlaySamples)
-        {
-            gotAudio = true;
-            break;
-        }
-        if (audioSource != null && (audioSource.isPlaying || isPlayingChunk))
-        {
-            gotAudio = true;
-            break;
-        }
-        yield return null;
-    }
-
-    // If no audio arrived within timeout, just return (UI will still proceed)
-    yield break;
-}
-
     /// <summary>
-    /// Speak and wait until audio finishes (or timeout).
+    /// Speak and wait until audio finishes (or timeout). Use StartCoroutine on this.
+    /// If websocket is not connected or apiKey empty, this will return quickly (no TTS).
+    /// sendText: if true, this coroutine will send the text to the TTS server itself.
+    ///           if false, it will assume the text has already been sent (e.g. by PrepareSpeechCoroutine).
     /// </summary>
-    /// <summary>
-/// Speak and wait until audio finishes (or timeout). Use StartCoroutine on this.
-/// If websocket is not connected or apiKey empty, this will return quickly (no TTS).
-/// sendText: if true, this coroutine will send the text to the TTS server itself.
-///           if false, it will assume the text has already been sent (e.g. by PrepareSpeechCoroutine).
-/// </summary>
-public IEnumerator SpeakAndWaitCoroutine(string contextId, string text, float timeoutSeconds = -1f, bool sendText = true)
-{
-    if (string.IsNullOrEmpty(text)) yield break;
-    if (timeoutSeconds <= 0f) timeoutSeconds = defaultTimeoutSeconds;
-
-    // If websocket not connected and sendText==true, bail quickly so caller won't hang
-    if (sendText && (websocket == null || websocket.State != WebSocketState.Open))
+    public IEnumerator SpeakAndWaitCoroutine(string contextId, string text, float timeoutSeconds = -1f, bool sendText = true)
     {
-        Debug.Log("[BattleNarrator] WebSocket not ready - SpeakAndWait will not block for audio. Text: " + text);
-        yield break;
-    }
+        if (string.IsNullOrEmpty(text)) yield break;
+        if (timeoutSeconds <= 0f) timeoutSeconds = defaultTimeoutSeconds;
 
-    // If we are responsible for sending the text, clear previous context for clean audio start
-    if (sendText)
-    {
-        try { ClearContextTurn(contextId); } catch { }
-        // one frame to let clear take effect
-        yield return null;
+        _speakCancelled = false;
 
-        // send the text
-        SendTurn(contextId, text);
-    }
-
-    // wait until audio or timeout
-    float start = Time.realtimeSinceStartup;
-    bool gotAudio = false;
-    while (Time.realtimeSinceStartup - start < timeoutSeconds)
-    {
-        if (audioBuffer.Count > 0 || (audioSource != null && audioSource.isPlaying) || isPlayingChunk)
+        // If websocket not connected and sendText==true, bail quickly so caller won't hang
+        if (sendText && (websocket == null || websocket.State != WebSocketState.Open))
         {
-            gotAudio = true;
-            break;
+            Debug.Log("[BattleNarrator] WebSocket not ready - SpeakAndWait will not block for audio. Text: " + text);
+            yield break;
         }
-        yield return null;
+
+        // If we are responsible for sending the text, clear previous context locally then notify server
+        if (sendText)
+        {
+            StopAndClearPlayback();
+            _ = ClearContextTurn(contextId);
+            yield return null;
+            SendTurn(contextId, text);
+        }
+
+        // wait until audio or timeout (or cancelled)
+        float start = Time.realtimeSinceStartup;
+        bool gotAudio = false;
+        while (Time.realtimeSinceStartup - start < timeoutSeconds)
+        {
+            if (_speakCancelled)
+            {
+                Debug.Log("[BattleNarrator] SpeakAndWait cancelled while waiting for audio.");
+                yield break;
+            }
+
+            if (audioBuffer.Count > 0 || (audioSource != null && audioSource.isPlaying) || isPlayingChunk)
+            {
+                gotAudio = true;
+                break;
+            }
+            yield return null;
+        }
+
+        if (!gotAudio)
+        {
+            Debug.LogWarning("[BattleNarrator] SpeakAndWait: no audio arrived within timeout for: " + text);
+            yield break;
+        }
+
+        // wait until playback completes and buffer drained (or timeout/cancel)
+        start = Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup - start < timeoutSeconds)
+        {
+            if (_speakCancelled)
+            {
+                Debug.Log("[BattleNarrator] SpeakAndWait cancelled while waiting for playback to finish.");
+                yield break;
+            }
+
+            bool bufferEmpty = audioBuffer.Count == 0;
+            bool playing = (audioSource != null && audioSource.isPlaying) || isPlayingChunk;
+            if (!playing && bufferEmpty) break;
+            yield return null;
+        }
+
+        // tiny buffer to ensure audio finishes
+        yield return new WaitForSecondsRealtime(0.05f);
     }
 
-    if (!gotAudio)
+    /// <summary>
+    /// Cancel any ongoing SpeakAndWait / PrepareSpeech waiting and clear local audio buffer.
+    /// Call this when user dismisses or selects a UI choice that should interrupt narration.
+    /// </summary>
+    public void CancelSpeakWait()
     {
-        Debug.LogWarning("[BattleNarrator] SpeakAndWait: no audio arrived within timeout for: " + text);
-        yield break;
+        Debug.Log("[BattleNarrator] CancelSpeakWait called.");
+        _speakCancelled = true;
+        try { if (audioSource != null && audioSource.isPlaying) audioSource.Stop(); } catch { }
+        audioBuffer.Clear();
+        isPlayingChunk = false;
+        if (waitForEndCoroutine != null) { StopCoroutine(waitForEndCoroutine); waitForEndCoroutine = null; }
     }
-
-    // wait until playback completes and buffer drained (or timeout)
-    start = Time.realtimeSinceStartup;
-    while (Time.realtimeSinceStartup - start < timeoutSeconds)
-    {
-        bool bufferEmpty = audioBuffer.Count == 0;
-        bool playing = (audioSource != null && audioSource.isPlaying) || isPlayingChunk;
-        if (!playing && bufferEmpty) break;
-        yield return null;
-    }
-
-    // tiny buffer
-    yield return new WaitForSecondsRealtime(0.05f);
-}
-
 }

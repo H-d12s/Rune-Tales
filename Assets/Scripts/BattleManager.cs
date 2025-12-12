@@ -1443,35 +1443,9 @@ private IEnumerator ProcessMessageQueue()
         // -------------------
         if (messageUI != null)
         {
-            // If we have a narrator, first prepare speech (wait for initial audio buffer),
-            // then start the persistent typing and SpeakAndWait.
             if (narrator != null)
             {
-                // 1) Prepare speech (start prepare coroutine). Wrap only StartCoroutine in try/catch.
-                bool prepDone = false;
-                float prepareTimeout = 4f; // tune this if your voice service is slower
-                try
-                {
-                    StartCoroutine(RunAndMark(narrator.PrepareSpeechCoroutine("battle", req.text, prepareTimeout),
-                                              () => prepDone = true));
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"⚠️ Could not start narrator PrepareSpeechCoroutine: {ex.Message}");
-                    prepDone = true; // fallback — don't block UI forever
-                }
-
-                // wait for prepare to finish or timeout or cancel
-                float prepStart = Time.realtimeSinceStartup;
-                while (!prepDone && Time.realtimeSinceStartup - prepStart < prepareTimeout && !req.completed)
-                    yield return null;
-
-                if (!prepDone)
-                {
-                    Debug.LogWarning($"⚠️ Narrator prepare did not complete within {prepareTimeout}s for '{req.text}'. UI will still proceed.");
-                }
-
-                // 2) Start persistent typed message now that audio is likely ready.
+                // Start persistent typed message immediately (non-blocking)
                 try
                 {
                     activeMessageCoroutine =
@@ -1485,21 +1459,20 @@ private IEnumerator ProcessMessageQueue()
                     activeMessageCoroutine = null;
                 }
 
-                // 3) Start SpeakAndWait so we block until playback fully finishes.
-                // 3) Start SpeakAndWait so we block until playback fully finishes.
-try
-{
-    float speakTimeout = 12f; // tune as needed
-    // IMPORTANT: we've already sent the text in PrepareSpeechCoroutine, so ask SpeakAndWait to NOT send again
-    StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine("battle", req.text, speakTimeout, false),
-                              () => ttsDone = true));
-}
-catch (Exception ex)
-{
-    Debug.LogWarning($"⚠️ Failed to start BattleNarrator SpeakAndWait for '{req.text}': {ex.Message}");
-    ttsDone = true;
-}
-
+                // Start SpeakAndWait so we block until playback fully finishes.
+                try
+                {
+                    float speakTimeout = 12f; // tune as needed
+                    // Use the narrator's SpeakAndWaitCoroutine that both sends the text (older version)
+                    // or waits for already-sent audio (if you have a Prepare/Speak split you would pass false).
+                    StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine("battle", req.text, speakTimeout),
+                                              () => ttsDone = true));
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"⚠️ Failed to start BattleNarrator SpeakAndWait for '{req.text}': {ex.Message}");
+                    ttsDone = true;
+                }
             }
             else
             {
@@ -1544,6 +1517,29 @@ catch (Exception ex)
             yield return null;
         }
 
+        // If TTS didn't finish, attempt to cancel the narrator wait (if the narrator exposes a cancel method).
+        if (!ttsDone && narrator != null)
+        {
+            try
+            {
+                // If narrator has CancelSpeakWait(), invoke it (works whether or not the method exists).
+                var mi = narrator.GetType().GetMethod("CancelSpeakWait");
+                if (mi != null)
+                {
+                    Debug.Log("[MessageQueue] TTS did not finish in time — invoking narrator.CancelSpeakWait().");
+                    mi.Invoke(narrator, null);
+                }
+                else
+                {
+                    Debug.LogWarning("[MessageQueue] TTS did not finish in time and narrator.CancelSpeakWait() not found.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[MessageQueue] Failed to cancel narrator wait: {ex.Message}");
+            }
+        }
+
         if (!(typedDone && ttsDone) && !req.completed)
         {
             Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
@@ -1571,7 +1567,6 @@ catch (Exception ex)
     processingMessageQueue = false;
     messageQueueCoroutine = null;
 }
-
 
 
 

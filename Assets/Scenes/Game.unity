@@ -2311,7 +2311,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dfc1e5a229ed84b4a9b311d8d9ffbb93, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  baseXPRequired: 60
+  baseXPRequired: 10
   growthRate: 1.2
   levelUpUI: {fileID: 0}
   maxLevel: 30
@@ -3306,6 +3306,14 @@ MonoBehaviour:
   defaultAutoHideSeconds: 1.2
   minStaggerBetweenMessages: 0.06
   fadeDuration: 0.18
+  moveReplacePanel: {fileID: 0}
+  replaceTitleText: {fileID: 0}
+  replaceMovesContainer: {fileID: 0}
+  replaceMoveButtonPrefab: {fileID: 0}
+  replaceCancelButton: {fileID: 0}
+  IsAwaitingReplaceChoice: 0
+  ReplaceWasCancelled: 0
+  ReplaceLastSelectedIndex: -1
 --- !u!114 &1534645599
 MonoBehaviour:
   m_ObjectHideFlags: 0
