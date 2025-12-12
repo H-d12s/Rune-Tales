@@ -5,9 +5,21 @@ using System.Collections.Generic;
 public class CharacterData : ScriptableObject
 {   
     // inside CharacterData class (add near other headers)
-[Header("Animation Clips (optional)")]
-public AnimationClip idleClip;
-public AnimationClip attackClip;
+
+[Header("Sprite Sheet Animations")]
+
+public Sprite[] idleSprites;
+public float idleFPS = 6;
+
+public Sprite[] attackSprites;
+public float attackFPS = 10;
+
+public Sprite[] hurtSprites;
+public float hurtFPS = 12;
+
+public Sprite[] deathSprites;
+public float deathFPS = 6;
+
 
 /// <summary>
 /// Normalized time in attack clip when the "hit" happens (0..1).

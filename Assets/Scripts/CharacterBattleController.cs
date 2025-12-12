@@ -19,6 +19,14 @@ public class CharacterBattleController : MonoBehaviour
     // === STUN SYSTEM ===
     public bool IsStunned { get; private set; } = false;
     private int stunDuration = 0;
+    private Coroutine animCoroutine;
+private SpriteRenderer sr;
+
+private void Awake()
+{
+    sr = GetComponent<SpriteRenderer>();
+}
+
 
     // === UNITY HOOK ===
     void Start()
@@ -187,4 +195,63 @@ public class CharacterBattleController : MonoBehaviour
 
         return true;
     }
+ 
+
+// ─────────────────────────────────────────────
+// ANIMATION PLAYERS
+// ─────────────────────────────────────────────
+
+public void PlayIdle()
+{
+    StartAnim(characterData.idleSprites, characterData.idleFPS, true);
+}
+
+public IEnumerator PlayAttack()
+{
+    StartAnim(characterData.attackSprites, characterData.attackFPS, false);
+    yield return new WaitForSecondsRealtime(characterData.attackSprites.Length / characterData.attackFPS);
+}
+
+public IEnumerator PlayHurt()
+{
+    StartAnim(characterData.hurtSprites, characterData.hurtFPS, false);
+    yield return new WaitForSecondsRealtime(characterData.hurtSprites.Length / characterData.hurtFPS);
+}
+
+public IEnumerator PlayDeath()
+{
+    StartAnim(characterData.deathSprites, characterData.deathFPS, false);
+    yield return new WaitForSecondsRealtime(characterData.deathSprites.Length / characterData.deathFPS);
+}
+
+// ─────────────────────────────────────────────
+// INTERNAL ANIMATION HELPERS
+// ─────────────────────────────────────────────
+
+private void StartAnim(Sprite[] frames, float fps, bool loop)
+{
+    if (animCoroutine != null)
+        StopCoroutine(animCoroutine);
+
+    animCoroutine = StartCoroutine(PlayAnimation(frames, fps, loop));
+}
+
+private IEnumerator PlayAnimation(Sprite[] frames, float fps, bool loop)
+{
+    if (frames == null || frames.Length == 0 || spriteRenderer == null)
+        yield break;
+
+    float delay = 1f / Mathf.Max(1f, fps);
+
+    do
+    {
+        for (int i = 0; i < frames.Length; i++)
+        {
+            spriteRenderer.sprite = frames[i];
+            yield return new WaitForSecondsRealtime(delay);
+        }
+    }
+    while (loop);
+}
+
 }

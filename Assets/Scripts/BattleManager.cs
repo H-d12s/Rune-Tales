@@ -307,11 +307,23 @@ private Coroutine messageQueueCoroutine = null;
                 continue;
             }
 
-            ctrl.characterData = teamData[i];
-            ctrl.isPlayer = isPlayer;
+         ctrl.characterData = teamData[i];
+ctrl.isPlayer = isPlayer;
 
-            // Initialize runtime and visuals
-            try { ctrl.InitializeCharacter(); } catch (System.Exception ex) { Debug.LogWarning($"SpawnTeam: InitializeCharacter threw: {ex}"); }
+// Initialize runtime and visuals
+try { ctrl.InitializeCharacter(); } catch (System.Exception ex) { Debug.LogWarning($"SpawnTeam: InitializeCharacter threw: {ex}"); }
+
+// --- NEW: start idle animation for this spawned character
+try
+{
+    // PlayIdle() should start the looping idle animation (non-blocking).
+    ctrl.PlayIdle();
+}
+catch (Exception ex)
+{
+    Debug.LogWarning($"⚠️ Failed to PlayIdle() on spawned character {ctrl.name}: {ex.Message}");
+}
+
 
             // Apply persistent player runtime prior to battle (players only)
             if (isPlayer && PersistentPlayerData.Instance != null)
@@ -856,6 +868,32 @@ else
         var attackerRuntime = attacker.GetRuntimeCharacter();
         var targetRuntime = target.GetRuntimeCharacter();
 
+
+// --- NEW: play attack animation (block until it finishes) ---
+// --- NEW: play attack animation (block until it finishes) ---
+Coroutine attackAnim = null;
+
+if (attacker != null)
+{
+    try
+    {
+        // Start the coroutine (NO yield here)
+        attackAnim = StartCoroutine(attacker.PlayAttack());
+    }
+    catch (Exception ex)
+    {
+        Debug.LogWarning(
+            $"⚠️ Failed PlayAttack for {attacker?.characterData?.characterName ?? attacker?.name}: {ex.Message}"
+        );
+    }
+}
+
+// Yield OUTSIDE the try/catch
+if (attackAnim != null)
+{
+    yield return attackAnim;
+}
+
         // Apply attack logic and capture first dice/hit/damage for UI reveal
         var result = PerformAttack(attacker, target, attack);
 
@@ -897,6 +935,27 @@ else
                 healthbarMap.Remove(target);
                 if (hbToRemove != null) Destroy(hbToRemove.gameObject);
             }
+            // Death animation — start inside try, yield outside
+Coroutine deathAnim = null;
+
+try
+{
+    if (target != null)
+        deathAnim = StartCoroutine(target.PlayDeath());
+}
+catch (Exception ex)
+{
+    Debug.LogWarning(
+        $"⚠️ Failed PlayDeath for {target?.characterData?.characterName ?? target?.name}: {ex.Message}"
+    );
+}
+
+// Yield OUTSIDE the try/catch (legal)
+if (deathAnim != null)
+{
+    yield return deathAnim;
+}
+
 
             yield return StartCoroutine(FadeAndRemove(target));
 
