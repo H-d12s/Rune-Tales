@@ -1435,179 +1435,111 @@ private IEnumerator ProcessMessageQueue()
             try { markDone?.Invoke(); } catch { }
         }
 
-        bool startedTyped = false;
-        var narrator = FindObjectOfType<BattleNarrator>();
+       // -------------------------
+// Message Processing (No Narrator Version)
+// -------------------------
+bool startedTyped = false;
 
-        // -------------------
-        // If we have messageUI
-        // -------------------
-        if (messageUI != null)
-        {
-            if (narrator != null)
-            {
-                // Start persistent typed message immediately (non-blocking)
-                try
-                {
-                    activeMessageCoroutine =
-                        StartCoroutine(RunAndMark(messageUI.ShowMessagePersistent(req.text), () => typedDone = true));
-                    startedTyped = true;
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"⚠️ Could not start persistent typed message for '{req.text}': {ex.Message}");
-                    typedDone = true;
-                    activeMessageCoroutine = null;
-                }
+// If we have messageUI
+if (messageUI != null)
+{
+    try
+    {
+        // Typed message (auto-hide or persistent depending on your ShowMessage impl)
+        activeMessageCoroutine =
+            StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
 
-                // Start SpeakAndWait so we block until playback fully finishes.
-                try
-                {
-                    float speakTimeout = 12f; // tune as needed
-                    // Use the narrator's SpeakAndWaitCoroutine that both sends the text (older version)
-                    // or waits for already-sent audio (if you have a Prepare/Speak split you would pass false).
-                    StartCoroutine(RunAndMark(narrator.SpeakAndWaitCoroutine("battle", req.text, speakTimeout),
-                                              () => ttsDone = true));
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"⚠️ Failed to start BattleNarrator SpeakAndWait for '{req.text}': {ex.Message}");
-                    ttsDone = true;
-                }
-            }
-            else
-            {
-                // No narrator: fallback to legacy typed message which auto-hides itself
-                try
-                {
-                    activeMessageCoroutine =
-                        StartCoroutine(RunAndMark(messageUI.ShowMessage(req.text), () => typedDone = true));
-                    startedTyped = true;
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
-                    typedDone = true;
-                    activeMessageCoroutine = null;
-                }
-
-                // no TTS to wait for
-                ttsDone = true;
-            }
-        }
-        else
-        {
-            typedDone = true;
-            ttsDone = true;
-        }
-
-        // If typing never started, show instant fallback
-        if (!startedTyped && messageUI != null)
-        {
-            try { messageUI.ShowMessageInstant(req.text); }
-            catch { Debug.Log(req.text); }
-            yield return new WaitForSeconds(0.45f);
-        }
-
-        // Wait until both finished or a safety timeout OR until someone externally marks req.completed
-        float safetyTimeout = 20f;
-        float elapsed = 0f;
-        while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            yield return null;
-        }
-
-        // If TTS didn't finish, attempt to cancel the narrator wait (if the narrator exposes a cancel method).
-        if (!ttsDone && narrator != null)
-        {
-            try
-            {
-                // If narrator has CancelSpeakWait(), invoke it (works whether or not the method exists).
-                var mi = narrator.GetType().GetMethod("CancelSpeakWait");
-                if (mi != null)
-                {
-                    Debug.Log("[MessageQueue] TTS did not finish in time — invoking narrator.CancelSpeakWait().");
-                    mi.Invoke(narrator, null);
-                }
-                else
-                {
-                    Debug.LogWarning("[MessageQueue] TTS did not finish in time and narrator.CancelSpeakWait() not found.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[MessageQueue] Failed to cancel narrator wait: {ex.Message}");
-            }
-        }
-
-        if (!(typedDone && ttsDone) && !req.completed)
-        {
-            Debug.LogWarning($"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
-        }
-
-        // If we used a persistent message (narrator != null), explicitly hide/clear it so it doesn't stick.
-        if (messageUI != null && narrator != null)
-        {
-            try { messageUI.HideInstant(); } catch { }
-        }
-
-        // Clear active typed reference
+        startedTyped = true;
+    }
+    catch (Exception ex)
+    {
+        Debug.LogWarning($"⚠️ Could not start typed message coroutine for '{req.text}': {ex.Message}");
+        typedDone = true;
         activeMessageCoroutine = null;
-
-        // Mark request completed (so any ShowBattleMessage callers waiting will continue)
-        req.completed = true;
-
-        // tiny buffer
-        yield return null;
-
-        // clear current request
-        currentMessageRequest = null;
     }
 
-    processingMessageQueue = false;
-    messageQueueCoroutine = null;
+    // No narrator → no TTS wait
+    ttsDone = true;
+}
+else
+{
+    typedDone = true;
+    ttsDone = true;
+}
+
+// If typing never started, fallback instant message
+if (!startedTyped && messageUI != null)
+{
+    try { messageUI.ShowMessageInstant(req.text); }
+    catch { Debug.Log(req.text); }
+
+    yield return new WaitForSeconds(0.45f);
+}
+
+// Wait until typing finishes or timeout or external cancel
+float safetyTimeout = 20f;
+float elapsed = 0f;
+while (!(typedDone && ttsDone) && elapsed < safetyTimeout && !req.completed)
+{
+    elapsed += Time.unscaledDeltaTime;
+    yield return null;
+}
+
+if (!(typedDone && ttsDone) && !req.completed)
+{
+    Debug.LogWarning(
+        $"⚠️ Message '{req.text}' did not finish within {safetyTimeout}s; continuing.");
+}
+
+// Clear active typed coroutine reference
+activeMessageCoroutine = null;
+
+// Mark request complete
+req.completed = true;
+
+// tiny buffer
+yield return null;
+
+// clear current request
+currentMessageRequest = null;
+}
+
+processingMessageQueue = false;
+messageQueueCoroutine = null;
 }
 
 
-
-    /// <summary>
-    /// Cancel any currently queued or running messages and hide message UI instantly.
-    /// </summary>
-   public void CancelAndHideBattleMessage()
+// ============================================================================
+// Cancel & Hide Messages
+// ============================================================================
+public void CancelAndHideBattleMessage()
 {
-    // clear queued messages
     messageQueue.Clear();
 
-    // If there's a currently-processing request, mark it completed so any blocking callers continue.
     if (currentMessageRequest != null)
     {
         try { currentMessageRequest.completed = true; } catch { }
         currentMessageRequest = null;
     }
 
-    // Stop the main queue coroutine
     if (messageQueueCoroutine != null)
     {
         try { StopCoroutine(messageQueueCoroutine); } catch { }
         messageQueueCoroutine = null;
     }
 
-    // Stop any typed-message coroutine we've stored
     if (activeMessageCoroutine != null)
     {
         try { StopCoroutine(activeMessageCoroutine); } catch { }
         activeMessageCoroutine = null;
     }
 
-    // reset flag so ProcessMessageQueue won't be left in a weird state
     processingMessageQueue = false;
 
-    // Hide message UI and aggressively clear any text so it doesn't linger
     if (messageUI != null)
     {
         try { messageUI.HideInstant(); } catch { }
 
-        // best-effort: clear common text components inside messageUI so text doesn't linger on screen
         try
         {
             var textComp = messageUI.GetComponentInChildren<UnityEngine.UI.Text>();
@@ -1617,31 +1549,30 @@ private IEnumerator ProcessMessageQueue()
 
         try
         {
-            // TextMeshPro support (if you use TMP)
             var tmp = messageUI.GetComponentInChildren<TMPro.TextMeshProUGUI>();
             if (tmp != null) tmp.text = "";
         }
         catch { }
     }
 }
+
+
+// ============================================================================
+// (UNCHANGED) Hardcoded Healthbar Positioning
+// ============================================================================
 private void ApplyHardcodedHealthbarPositions(RectTransform hbRect, GameObject hbObj, bool isPlayer, int spawnIndex)
 {
     if (hbObj == null) return;
 
-    // X coordinate common to healthbar
     float targetX = 8.17651f;
 
-    // ==== Name text coordinates (user-provided) ====
-    // Player name positions
     Vector2 playerNamePos0 = new Vector2(336.8f, 1004.8f);
     Vector2 playerNamePos1 = new Vector2(336.8f, 1002.3f);
     Vector2 playerNamePos2 = new Vector2(336.8f, 1005.6f);
 
-    // Enemy name positions (typo corrected: second enemy x set to 336.8)
     Vector2 enemyNamePos0 = new Vector2(336.8f, 1004.4f);
     Vector2 enemyNamePos1 = new Vector2(336.8f, 1005.6f);
 
-    // ==== XP & Healthbar placement ====
     if (isPlayer)
     {
         float targetY;
@@ -1650,41 +1581,26 @@ private void ApplyHardcodedHealthbarPositions(RectTransform hbRect, GameObject h
 
         switch (spawnIndex)
         {
-            case 0:
-                targetY = 179.8f;
-                xpY = 955.2f;
-                break;
-            case 1:
-                targetY = 84.99f;
-                xpY = 956.4f;
-                break;
-            case 2:
-                targetY = -0.50874f;
-                xpY = 954.6f;
-                break;
-            default:
-                targetY = 179.8f - spawnIndex * 94.81f;
-                xpY = 955.2f;
-                break;
+            case 0: targetY = 179.8f; xpY = 955.2f; break;
+            case 1: targetY = 84.99f; xpY = 956.4f; break;
+            case 2: targetY = -0.50874f; xpY = 954.6f; break;
+            default: targetY = 179.8f - spawnIndex * 94.81f; xpY = 955.2f; break;
         }
 
-        // Healthbar position (anchored or local)
         if (hbRect != null)
-        {
             hbRect.anchoredPosition = new Vector2(targetX, targetY);
-        }
         else
         {
-            try { hbObj.transform.localPosition = new Vector3(targetX, targetY, hbObj.transform.localPosition.z); } catch { }
+            try { hbObj.transform.localPosition = new Vector3(targetX, targetY, hbObj.transform.localPosition.z); }
+            catch { }
         }
 
-        // XP container child search & position (search for name containing "xpbar" or "xp")
         Transform xpChild = null;
         foreach (Transform c in hbObj.transform)
         {
             if (c == null || string.IsNullOrEmpty(c.name)) continue;
             string lower = c.name.ToLowerInvariant();
-            if (lower.Contains("xpbar") || lower.Contains("xp") && lower.Contains("bar") || lower.Contains("xpcontainer"))
+            if (lower.Contains("xpbar") || (lower.Contains("xp") && lower.Contains("bar")) || lower.Contains("xpcontainer"))
             {
                 xpChild = c;
                 break;
@@ -1697,79 +1613,60 @@ private void ApplyHardcodedHealthbarPositions(RectTransform hbRect, GameObject h
             if (xpRect != null) xpRect.anchoredPosition = new Vector2(xpX, xpY);
             else
             {
-                try { xpChild.localPosition = new Vector3(xpX, xpY, xpChild.localPosition.z); } catch { }
+                try { xpChild.localPosition = new Vector3(xpX, xpY, xpChild.localPosition.z); }
+                catch { }
             }
         }
 
-        // --- NameText placement ---
-        Vector2 chosenNamePos = spawnIndex == 0 ? playerNamePos0 : spawnIndex == 1 ? playerNamePos1 : playerNamePos2;
-        // find child with "name" in its name (case-insensitive)
+        Vector2 namePos = (spawnIndex == 0 ? playerNamePos0 :
+                           spawnIndex == 1 ? playerNamePos1 :
+                           playerNamePos2);
+
         Transform nameChild = null;
         foreach (Transform c in hbObj.transform)
-        {
-            if (c == null || string.IsNullOrEmpty(c.name)) continue;
-            if (c.name.ToLowerInvariant().Contains("name"))
-            {
-                nameChild = c;
-                break;
-            }
-        }
+            if (c.name.ToLowerInvariant().Contains("name")) { nameChild = c; break; }
 
         if (nameChild != null)
         {
-            var nameRect = nameChild as RectTransform;
-            if (nameRect != null) nameRect.anchoredPosition = chosenNamePos;
+            var nr = nameChild as RectTransform;
+            if (nr != null) nr.anchoredPosition = namePos;
             else
             {
-                try { nameChild.localPosition = new Vector3(chosenNamePos.x, chosenNamePos.y, nameChild.localPosition.z); } catch { }
+                try { nameChild.localPosition = new Vector3(namePos.x, namePos.y, nameChild.localPosition.z); }
+                catch { }
             }
         }
 
         return;
     }
 
-    // ===== Enemy placement (max 2) =====
-    float enemyTargetY;
-    switch (spawnIndex)
-    {
-        case 0: enemyTargetY = -0.50874f; break;
-        case 1: enemyTargetY = -81.2f; break;
-        default: enemyTargetY = -0.50874f - spawnIndex * 80f; break;
-    }
+    float enemyTargetY = spawnIndex == 0 ? -0.50874f :
+                         spawnIndex == 1 ? -81.2f :
+                         -0.50874f - spawnIndex * 80f;
 
     if (hbRect != null)
-    {
         hbRect.anchoredPosition = new Vector2(targetX, enemyTargetY);
-    }
     else
     {
-        try { hbObj.transform.localPosition = new Vector3(targetX, enemyTargetY, hbObj.transform.localPosition.z); } catch { }
+        try { hbObj.transform.localPosition = new Vector3(targetX, enemyTargetY, hbObj.transform.localPosition.z); }
+        catch { }
     }
 
-    // Enemy name placement
-    Vector2 chosenEnemyName = spawnIndex == 0 ? enemyNamePos0 : enemyNamePos1;
-    Transform nameChildEnemy = null;
+    Vector2 enemyNamePos = spawnIndex == 0 ? enemyNamePos0 : enemyNamePos1;
+
+    Transform eName = null;
     foreach (Transform c in hbObj.transform)
-    {
-        if (c == null || string.IsNullOrEmpty(c.name)) continue;
-        if (c.name.ToLowerInvariant().Contains("name"))
-        {
-            nameChildEnemy = c;
-            break;
-        }
-    }
+        if (c.name.ToLowerInvariant().Contains("name")) { eName = c; break; }
 
-    if (nameChildEnemy != null)
+    if (eName != null)
     {
-        var nameRect = nameChildEnemy as RectTransform;
-        if (nameRect != null) nameRect.anchoredPosition = chosenEnemyName;
+        var nr = eName as RectTransform;
+        if (nr != null) nr.anchoredPosition = enemyNamePos;
         else
         {
-            try { nameChildEnemy.localPosition = new Vector3(chosenEnemyName.x, chosenEnemyName.y, nameChildEnemy.localPosition.z); } catch { }
+            try { eName.localPosition = new Vector3(enemyNamePos.x, enemyNamePos.y, eName.localPosition.z); }
+            catch { }
         }
     }
-
-    // (No XP reposition for enemy in provided list; add if you want)
 }
-
 }
